@@ -10,4 +10,8 @@ if [ ! -f /app/package.json ]; then
 fi
 
 npm install
+
+npx prisma generate
+npx prisma migrate deploy
+
 exec npm run dev
