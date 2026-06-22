@@ -1,0 +1,159 @@
+// Datasource and generator
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ---------- Auth.js (NextAuth v5) Prisma adapter models ----------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+
+  accounts        Account[]
+  sessions        Session[]
+  expenses        Expense[]
+  tasksCreated    Task[] @relation("TaskCreator")
+  tasksAssigned   Task[] @relation("TaskAssignee")
+  shoppingItems   ShoppingItem[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------- Domain models ----------
+
+model Category {
+  id            String   @id @default(cuid())
+  name          String
+  parentId      String?
+  parent        Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children      Category[] @relation("CategoryTree")
+  // Monthly spending objective. Only meaningful on top-level categories
+  // (subcategory expenses roll into the parent for budget purposes).
+  monthlyBudget Decimal?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  expensesAsCategory    Expense[] @relation("ExpenseCategory")
+  expensesAsSubcategory Expense[] @relation("ExpenseSubcategory")
+
+  @@unique([name, parentId])
+}
+
+model Expense {
+  id            String   @id @default(cuid())
+  value         Decimal
+  description   String
+  comment       String?
+  date          DateTime
+  isJoint       Boolean  @default(true)
+
+  // Reimbursement: expected refund (can be partial of value), source
+  // (e.g. employer / insurance), and confirmation timestamp once received.
+  reimbursementAmount Decimal?
+  reimburser          String?
+  reimbursedAt        DateTime?
+
+  categoryId    String
+  category      Category @relation("ExpenseCategory", fields: [categoryId], references: [id])
+
+  subcategoryId String?
+  subcategory   Category? @relation("ExpenseSubcategory", fields: [subcategoryId], references: [id])
+
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([date])
+  @@index([userId])
+  @@index([categoryId])
+  @@index([reimbursedAt])
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  description String
+  priority    String    @default("MEDIUM") // LOW | MEDIUM | HIGH | URGENT
+  recurrence  String?   // null | DAILY | WEEKLY | MONTHLY
+  deadline    DateTime?
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+
+  userId      String
+  user        User      @relation("TaskCreator", fields: [userId], references: [id])
+
+  assigneeId  String?
+  assignee    User?     @relation("TaskAssignee", fields: [assigneeId], references: [id])
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([deadline])
+  @@index([completed])
+  @@index([userId])
+  @@index([assigneeId])
+}
+
+model ShoppingItem {
+  id          String    @id @default(cuid())
+  name        String
+  quantity    String?
+  recurrence  String?   // null | DAILY | WEEKLY | MONTHLY
+  dueDate     DateTime?
+  bought      Boolean   @default(false)
+  boughtAt    DateTime?
+
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([bought])
+  @@index([dueDate])
+  @@index([userId])
+}
