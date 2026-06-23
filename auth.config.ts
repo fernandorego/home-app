@@ -12,9 +12,7 @@ const DISPLAY_NAMES: Record<string, string> = {
 };
 
 export const authConfig: NextAuthConfig = {
-  providers: [
-    /* Google() */
-  ],
+  providers: [Google],
   session: { strategy: "jwt" },
   callbacks: {
     signIn: ({ profile }) =>
