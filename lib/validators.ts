@@ -48,6 +48,8 @@ export const expenseFilterSchema = z.object({
     .optional()
     .default("date"),
   order: z.enum(["asc", "desc"]).optional().default("desc"),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
 
 export type ExpenseInput = z.infer<typeof expenseInputSchema>;
@@ -88,6 +90,8 @@ export const taskFilterSchema = z.object({
     .optional()
     .default("deadline"),
   order: z.enum(["asc", "desc"]).optional().default("asc"),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
 
 export type TaskInput = z.infer<typeof taskInputSchema>;
@@ -113,6 +117,8 @@ export const shoppingFilterSchema = z.object({
   q: z.string().optional(),
   sort: z.enum(["dueDate", "name", "createdAt"]).optional().default("dueDate"),
   order: z.enum(["asc", "desc"]).optional().default("asc"),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
 
 export type ShoppingInput = z.infer<typeof shoppingInputSchema>;

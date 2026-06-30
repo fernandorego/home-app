@@ -1,13 +1,24 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import toast from "react-hot-toast";
-import { apiFetch, type TaskDTO, type UserDTO } from "@/lib/api-client";
+import {
+  apiFetch,
+  type Paginated,
+  type TaskDTO,
+  type UserDTO,
+} from "@/lib/api-client";
 import { PencilIcon, TrashIcon } from "@/components/icons";
 import { TaskFormRow } from "./task-form-row";
 import { PRIORITIES, PRIORITY_LABEL, PriorityBadge } from "./priority";
+import { Pagination } from "@/components/pagination";
 import {
   emptyForm,
   RECURRENCE_LABEL,
@@ -18,12 +29,16 @@ import {
   type SortKey,
 } from "./types";
 
+const PAGE_SIZE = 25;
+
 function formStateToInput(s: FormState) {
   return {
     description: s.description.trim(),
     priority: s.priority,
     recurrence: s.recurrence || null,
-    deadline: s.deadline ? new Date(`${s.deadline}T12:00:00`).toISOString() : null,
+    deadline: s.deadline
+      ? new Date(`${s.deadline}T12:00:00`).toISOString()
+      : null,
     assigneeId: s.assigneeId || null,
   };
 }
@@ -45,21 +60,25 @@ export function TasksClient() {
   const [filters, setFilters] = useState<Filters>({ completed: "false" });
   const [sort, setSort] = useState<SortKey>("deadline");
   const [order, setOrder] = useState<Order>("asc");
+  const [page, setPage] = useState(1);
 
   const queryParams = useMemo(() => {
     const sp = new URLSearchParams();
     sp.set("sort", sort);
     sp.set("order", order);
+    sp.set("page", String(page));
+    sp.set("pageSize", String(PAGE_SIZE));
     if (filters.priority) sp.set("priority", filters.priority);
     if (filters.completed) sp.set("completed", filters.completed);
     if (filters.assigneeId) sp.set("assigneeId", filters.assigneeId);
     if (filters.q) sp.set("q", filters.q);
     return sp.toString();
-  }, [filters, sort, order]);
+  }, [filters, sort, order, page]);
 
   const tasksQ = useQuery({
     queryKey: ["tasks", queryParams],
-    queryFn: () => apiFetch<TaskDTO[]>(`/api/tasks?${queryParams}`),
+    queryFn: () => apiFetch<Paginated<TaskDTO>>(`/api/tasks?${queryParams}`),
+    placeholderData: keepPreviousData,
   });
   const usersQ = useQuery({
     queryKey: ["users"],
@@ -78,6 +97,7 @@ export function TasksClient() {
       }),
     onSuccess: () => {
       invalidate();
+      setPage(1);
       toast.success("Task added");
       setCreateForm(emptyForm());
     },
@@ -109,7 +129,9 @@ export function TasksClient() {
       // If a recurring task was "completed", the server rolled the deadline forward
       // instead of marking it done — surface that so the user knows what happened.
       if (vars.completed && updated.completed === false && updated.deadline) {
-        toast.success(`Rolled forward to ${toIsoDate(new Date(updated.deadline))}`);
+        toast.success(
+          `Rolled forward to ${toIsoDate(new Date(updated.deadline))}`,
+        );
       }
     },
     onError: (err: Error) => toast.error(err.message),
@@ -135,9 +157,16 @@ export function TasksClient() {
       setSort(key);
       setOrder(key === "deadline" || key === "description" ? "asc" : "desc");
     }
+    setPage(1);
   };
 
-  const tasks = tasksQ.data ?? [];
+  const handleFiltersChange = (f: Filters) => {
+    setFilters(f);
+    setPage(1);
+  };
+
+  const tasks = tasksQ.data?.data ?? [];
+  const total = tasksQ.data?.total ?? 0;
   const users = usersQ.data ?? [];
   const userId = session?.user?.id;
 
@@ -146,16 +175,38 @@ export function TasksClient() {
 
   return (
     <div className="space-y-4">
-      <FiltersBar filters={filters} onChange={setFilters} users={users} />
+      <FiltersBar
+        filters={filters}
+        onChange={handleFiltersChange}
+        users={users}
+      />
 
       <div className="overflow-x-auto rounded-box border border-base-300">
         <table className="table table-zebra">
           <thead>
             <tr className="bg-base-200">
-              <Th label="Description" sortKey="description" sort={sort} order={order} onClick={onHeaderClick} />
-              <Th label="Deadline" sortKey="deadline" sort={sort} order={order} onClick={onHeaderClick} />
+              <Th
+                label="Description"
+                sortKey="description"
+                sort={sort}
+                order={order}
+                onClick={onHeaderClick}
+              />
+              <Th
+                label="Deadline"
+                sortKey="deadline"
+                sort={sort}
+                order={order}
+                onClick={onHeaderClick}
+              />
               <th>Recurs</th>
-              <Th label="Priority" sortKey="priority" sort={sort} order={order} onClick={onHeaderClick} />
+              <Th
+                label="Priority"
+                sortKey="priority"
+                sort={sort}
+                order={order}
+                onClick={onHeaderClick}
+              />
               <th>Assigned to</th>
               <th>Actions</th>
             </tr>
@@ -195,7 +246,9 @@ export function TasksClient() {
                     isEdit
                     value={editForm}
                     onChange={setEditForm}
-                    onSubmit={() => updateM.mutate({ id: t.id, input: editForm })}
+                    onSubmit={() =>
+                      updateM.mutate({ id: t.id, input: editForm })
+                    }
                     onCancel={() => {
                       setEditingId(null);
                       setEditForm(null);
@@ -207,7 +260,8 @@ export function TasksClient() {
               }
 
               const deadlineDate = t.deadline ? new Date(t.deadline) : null;
-              const isOverdue = !!deadlineDate && !t.completed && deadlineDate < today;
+              const isOverdue =
+                !!deadlineDate && !t.completed && deadlineDate < today;
               const dim = t.completed ? "opacity-60" : "";
 
               return (
@@ -220,7 +274,10 @@ export function TasksClient() {
                         checked={t.completed}
                         disabled={!isOwner || toggleCompleteM.isPending}
                         onChange={(e) =>
-                          toggleCompleteM.mutate({ id: t.id, completed: e.target.checked })
+                          toggleCompleteM.mutate({
+                            id: t.id,
+                            completed: e.target.checked,
+                          })
                         }
                         aria-label="Mark complete"
                       />
@@ -290,6 +347,13 @@ export function TasksClient() {
           </tbody>
         </table>
       </div>
+
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        onChange={setPage}
+      />
     </div>
   );
 }
@@ -351,7 +415,10 @@ function FiltersBar({
             className="select select-sm select-bordered"
             value={filters.priority ?? ""}
             onChange={(e) =>
-              set("priority", (e.target.value || undefined) as Filters["priority"])
+              set(
+                "priority",
+                (e.target.value || undefined) as Filters["priority"],
+              )
             }
           >
             <option value="">All priorities</option>
@@ -380,7 +447,9 @@ function FiltersBar({
             onChange={(e) =>
               set(
                 "completed",
-                e.target.value === "" ? undefined : (e.target.value as "true" | "false"),
+                e.target.value === ""
+                  ? undefined
+                  : (e.target.value as "true" | "false"),
               )
             }
           >
@@ -389,7 +458,10 @@ function FiltersBar({
             <option value="true">Completed only</option>
           </select>
         </div>
-        {(filters.priority || filters.completed || filters.assigneeId || filters.q) && (
+        {(filters.priority ||
+          filters.completed ||
+          filters.assigneeId ||
+          filters.q) && (
           <div className="pt-2">
             <button
               type="button"

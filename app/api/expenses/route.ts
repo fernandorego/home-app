@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireSession, isErrorResponse, badRequest, handleZod } from "@/lib/api";
+import {
+  requireSession,
+  isErrorResponse,
+  badRequest,
+  handleZod,
+} from "@/lib/api";
 import { expenseInputSchema, expenseFilterSchema } from "@/lib/validators";
 import { visibleExpenseWhere } from "@/lib/visibility";
 
@@ -53,17 +58,24 @@ export async function GET(req: Request) {
       ? { category: { name: filter.order } }
       : { [filter.sort]: filter.order };
 
-  const expenses = await prisma.expense.findMany({
-    where,
-    orderBy,
-    include: {
-      category: true,
-      subcategory: true,
-      user: { select: { id: true, name: true, email: true, image: true } },
-    },
-  });
+  const skip = (filter.page - 1) * filter.pageSize;
 
-  return NextResponse.json(expenses);
+  const [expenses, total] = await prisma.$transaction([
+    prisma.expense.findMany({
+      where,
+      orderBy,
+      skip,
+      take: filter.pageSize,
+      include: {
+        category: true,
+        subcategory: true,
+        user: { select: { id: true, name: true, email: true, image: true } },
+      },
+    }),
+    prisma.expense.count({ where }),
+  ]);
+
+  return NextResponse.json({ data: expenses, total });
 }
 
 export async function POST(req: Request) {
@@ -74,15 +86,22 @@ export async function POST(req: Request) {
     const body = await req.json();
     const data = expenseInputSchema.parse(body);
 
-    const category = await prisma.category.findUnique({ where: { id: data.categoryId } });
+    const category = await prisma.category.findUnique({
+      where: { id: data.categoryId },
+    });
     if (!category) return badRequest("Category does not exist");
-    if (category.parentId) return badRequest("Pick a top-level category, not a subcategory");
+    if (category.parentId)
+      return badRequest("Pick a top-level category, not a subcategory");
 
     if (data.subcategoryId) {
-      const sub = await prisma.category.findUnique({ where: { id: data.subcategoryId } });
+      const sub = await prisma.category.findUnique({
+        where: { id: data.subcategoryId },
+      });
       if (!sub) return badRequest("Subcategory does not exist");
       if (sub.parentId !== data.categoryId) {
-        return badRequest("Subcategory does not belong to the selected category");
+        return badRequest(
+          "Subcategory does not belong to the selected category",
+        );
       }
     }
 

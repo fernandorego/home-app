@@ -1,4 +1,12 @@
-export async function apiFetch<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
+export type Paginated<T> = {
+  data: T[];
+  total: number;
+};
+
+export async function apiFetch<T>(
+  input: RequestInfo,
+  init?: RequestInit,
+): Promise<T> {
   const res = await fetch(input, {
     ...init,
     headers: {
@@ -79,7 +87,12 @@ export type ExpenseDTO = {
   reimburser: string | null;
   reimbursedAt: string | null;
   userId: string;
-  user: { id: string; name: string | null; email: string; image: string | null };
+  user: {
+    id: string;
+    name: string | null;
+    email: string;
+    image: string | null;
+  };
   createdAt: string;
   updatedAt: string;
 };
@@ -134,12 +147,20 @@ export type DashboardDTO = {
     pieRangeLabel: string;
     pieRangeTotal: number;
     cumulative: {
-      data: Array<{ day: number; thisMonth: number | null; lastMonth: number | null }>;
+      data: Array<{
+        day: number;
+        thisMonth: number | null;
+        lastMonth: number | null;
+      }>;
       thisMonthTotal: number;
       lastMonthAtSameDay: number;
       lastMonthTotal: number;
     };
-    reimburserLeaderboard: Array<{ name: string; total: number; count: number }>;
+    reimburserLeaderboard: Array<{
+      name: string;
+      total: number;
+      count: number;
+    }>;
   };
   tasks: Array<{
     id: string;
