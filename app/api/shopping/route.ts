@@ -35,13 +35,22 @@ export async function GET(req: Request) {
     ],
   };
 
-  const items = await prisma.shoppingItem.findMany({
-    where,
-    orderBy: { [filter.sort]: filter.order },
-    include: { user: { select: { id: true, name: true, email: true, image: true } } },
-  });
+  const skip = (filter.page - 1) * filter.pageSize;
 
-  return NextResponse.json(items);
+  const [items, total] = await prisma.$transaction([
+    prisma.shoppingItem.findMany({
+      where,
+      orderBy: { [filter.sort]: filter.order },
+      skip,
+      take: filter.pageSize,
+      include: {
+        user: { select: { id: true, name: true, email: true, image: true } },
+      },
+    }),
+    prisma.shoppingItem.count({ where }),
+  ]);
+
+  return NextResponse.json({ data: items, total });
 }
 
 export async function POST(req: Request) {
@@ -62,7 +71,9 @@ export async function POST(req: Request) {
         boughtAt: data.bought ? new Date() : null,
         userId: session.user.id,
       },
-      include: { user: { select: { id: true, name: true, email: true, image: true } } },
+      include: {
+        user: { select: { id: true, name: true, email: true, image: true } },
+      },
     });
 
     return NextResponse.json(created, { status: 201 });

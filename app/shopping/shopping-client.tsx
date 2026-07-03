@@ -1,12 +1,22 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import toast from "react-hot-toast";
-import { apiFetch, type ShoppingItemDTO } from "@/lib/api-client";
+import {
+  apiFetch,
+  type Paginated,
+  type ShoppingItemDTO,
+} from "@/lib/api-client";
 import { PencilIcon, TrashIcon } from "@/components/icons";
 import { ShoppingFormRow } from "./shopping-form-row";
+import { Pagination } from "@/components/pagination";
 import {
   emptyForm,
   RECURRENCES,
@@ -18,6 +28,8 @@ import {
   type Recurrence,
   type SortKey,
 } from "./types";
+
+const PAGE_SIZE = 25;
 
 function formStateToInput(s: FormState) {
   return {
@@ -44,20 +56,25 @@ export function ShoppingClient() {
   const [filters, setFilters] = useState<Filters>({ bought: "false" });
   const [sort, setSort] = useState<SortKey>("dueDate");
   const [order, setOrder] = useState<Order>("asc");
+  const [page, setPage] = useState(1);
 
   const queryParams = useMemo(() => {
     const sp = new URLSearchParams();
     sp.set("sort", sort);
     sp.set("order", order);
+    sp.set("page", String(page));
+    sp.set("pageSize", String(PAGE_SIZE));
     if (filters.bought) sp.set("bought", filters.bought);
     if (filters.recurrence) sp.set("recurrence", filters.recurrence);
     if (filters.q) sp.set("q", filters.q);
     return sp.toString();
-  }, [filters, sort, order]);
+  }, [filters, sort, order, page]);
 
   const itemsQ = useQuery({
     queryKey: ["shopping", queryParams],
-    queryFn: () => apiFetch<ShoppingItemDTO[]>(`/api/shopping?${queryParams}`),
+    queryFn: () =>
+      apiFetch<Paginated<ShoppingItemDTO>>(`/api/shopping?${queryParams}`),
+    placeholderData: keepPreviousData,
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["shopping"] });
@@ -72,6 +89,7 @@ export function ShoppingClient() {
       }),
     onSuccess: () => {
       invalidate();
+      setPage(1);
       toast.success("Added to list");
       setCreateForm(emptyForm());
     },
@@ -128,9 +146,16 @@ export function ShoppingClient() {
       setSort(key);
       setOrder(key === "dueDate" || key === "name" ? "asc" : "desc");
     }
+    setPage(1);
   };
 
-  const items = itemsQ.data ?? [];
+  const handleFiltersChange = (f: Filters) => {
+    setFilters(f);
+    setPage(1);
+  };
+
+  const items = itemsQ.data?.data ?? [];
+  const total = itemsQ.data?.total ?? 0;
   const userId = session?.user?.id;
 
   const today = new Date();
@@ -138,15 +163,27 @@ export function ShoppingClient() {
 
   return (
     <div className="space-y-4">
-      <FiltersBar filters={filters} onChange={setFilters} />
+      <FiltersBar filters={filters} onChange={handleFiltersChange} />
 
       <div className="overflow-x-auto rounded-box border border-base-300">
         <table className="table table-zebra">
           <thead>
             <tr className="bg-base-200">
-              <Th label="Item" sortKey="name" sort={sort} order={order} onClick={onHeaderClick} />
+              <Th
+                label="Item"
+                sortKey="name"
+                sort={sort}
+                order={order}
+                onClick={onHeaderClick}
+              />
               <th>Quantity</th>
-              <Th label="Due" sortKey="dueDate" sort={sort} order={order} onClick={onHeaderClick} />
+              <Th
+                label="Due"
+                sortKey="dueDate"
+                sort={sort}
+                order={order}
+                onClick={onHeaderClick}
+              />
               <th>Recurs</th>
               <th>Actions</th>
             </tr>
@@ -185,7 +222,9 @@ export function ShoppingClient() {
                     isEdit
                     value={editForm}
                     onChange={setEditForm}
-                    onSubmit={() => updateM.mutate({ id: item.id, input: editForm })}
+                    onSubmit={() =>
+                      updateM.mutate({ id: item.id, input: editForm })
+                    }
                     onCancel={() => {
                       setEditingId(null);
                       setEditForm(null);
@@ -209,11 +248,16 @@ export function ShoppingClient() {
                         checked={item.bought}
                         disabled={!isOwner || toggleBoughtM.isPending}
                         onChange={(e) =>
-                          toggleBoughtM.mutate({ id: item.id, bought: e.target.checked })
+                          toggleBoughtM.mutate({
+                            id: item.id,
+                            bought: e.target.checked,
+                          })
                         }
                         aria-label="Mark bought"
                       />
-                      <span className={item.bought ? "line-through" : ""}>{item.name}</span>
+                      <span className={item.bought ? "line-through" : ""}>
+                        {item.name}
+                      </span>
                     </label>
                   </td>
                   <td className="text-sm opacity-80">{item.quantity ?? "—"}</td>
@@ -266,6 +310,13 @@ export function ShoppingClient() {
           </tbody>
         </table>
       </div>
+
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        onChange={setPage}
+      />
     </div>
   );
 }
@@ -325,7 +376,10 @@ function FiltersBar({
             className="select select-sm select-bordered"
             value={filters.recurrence ?? ""}
             onChange={(e) =>
-              set("recurrence", (e.target.value || undefined) as Recurrence | undefined)
+              set(
+                "recurrence",
+                (e.target.value || undefined) as Recurrence | undefined,
+              )
             }
           >
             <option value="">All recurrences</option>
@@ -341,7 +395,9 @@ function FiltersBar({
             onChange={(e) =>
               set(
                 "bought",
-                e.target.value === "" ? undefined : (e.target.value as "true" | "false"),
+                e.target.value === ""
+                  ? undefined
+                  : (e.target.value as "true" | "false"),
               )
             }
           >

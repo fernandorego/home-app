@@ -1,11 +1,28 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import toast from "react-hot-toast";
-import { apiFetch, type CategoryDTO, type ExpenseDTO } from "@/lib/api-client";
-import { CheckIcon, MinusIcon, PencilIcon, PlusIcon, TrashIcon } from "@/components/icons";
+import {
+  apiFetch,
+  type CategoryDTO,
+  type ExpenseDTO,
+  type Paginated,
+} from "@/lib/api-client";
+import { Pagination } from "@/components/pagination";
+import {
+  CheckIcon,
+  MinusIcon,
+  PencilIcon,
+  PlusIcon,
+  TrashIcon,
+} from "@/components/icons";
 import { ExpenseFormRow } from "./expense-form-row";
 import { ReimbursementDialog } from "./reimbursement-dialog";
 import {
@@ -45,6 +62,8 @@ function expenseToFormState(e: ExpenseDTO): FormState {
   };
 }
 
+const PAGE_SIZE = 25;
+
 export function ExpensesClient() {
   const { data: session } = useSession();
   const qc = useQueryClient();
@@ -52,6 +71,7 @@ export function ExpensesClient() {
   const [filters, setFilters] = useState<Filters>({});
   const [sort, setSort] = useState<SortKey>("date");
   const [order, setOrder] = useState<Order>("desc");
+  const [page, setPage] = useState(1);
 
   const queryParams = useMemo(() => {
     const sp = new URLSearchParams();
@@ -64,12 +84,16 @@ export function ExpensesClient() {
     if (filters.to) sp.set("to", filters.to);
     if (filters.q) sp.set("q", filters.q);
     if (filters.reimburse) sp.set("reimburse", filters.reimburse);
+    sp.set("page", String(page));
+    sp.set("pageSize", String(PAGE_SIZE));
     return sp.toString();
-  }, [filters, sort, order]);
+  }, [filters, sort, order, page]);
 
   const expensesQ = useQuery({
     queryKey: ["expenses", queryParams],
-    queryFn: () => apiFetch<ExpenseDTO[]>(`/api/expenses?${queryParams}`),
+    queryFn: () =>
+      apiFetch<Paginated<ExpenseDTO>>(`/api/expenses?${queryParams}`),
+    placeholderData: keepPreviousData,
   });
   const categoriesQ = useQuery({
     queryKey: ["categories"],
@@ -84,7 +108,9 @@ export function ExpensesClient() {
     ? toIsoDate(new Date(lastDateQ.data.date))
     : todayIso();
 
-  const [createForm, setCreateFormState] = useState<FormState>(() => emptyForm(""));
+  const [createForm, setCreateFormState] = useState<FormState>(() =>
+    emptyForm(""),
+  );
   const [createTouched, setCreateTouched] = useState(false);
 
   const displayCreateForm: FormState = createTouched
@@ -113,6 +139,7 @@ export function ExpensesClient() {
       }),
     onSuccess: (created) => {
       invalidate();
+      setPage(1);
       toast.success("Expense added");
       resetCreateForm(toIsoDate(new Date(created.date)));
     },
@@ -152,7 +179,8 @@ export function ExpensesClient() {
     onSuccess: (updated) => {
       invalidate();
       if (updated.reimbursedAt) toast.success("Reimbursement received");
-      else if (updated.reimbursementAmount) toast.success("Reimbursement saved");
+      else if (updated.reimbursementAmount)
+        toast.success("Reimbursement saved");
       else toast.success("Reimbursement cleared");
     },
     onError: (err: Error) => toast.error(err.message),
@@ -184,24 +212,59 @@ export function ExpensesClient() {
       setSort(key);
       setOrder("desc");
     }
+    setPage(1);
   };
 
-  const expenses = expensesQ.data ?? [];
+  const handleFiltersChange = (f: Filters) => {
+    setFilters(f);
+    setPage(1);
+  };
+
+  const expenses = expensesQ.data?.data ?? [];
+  const total = expensesQ.data?.total ?? 0;
   const categories = categoriesQ.data ?? [];
   const userId = session?.user?.id;
 
   return (
     <div className="space-y-4">
-      <FiltersBar filters={filters} onChange={setFilters} categories={categories} />
+      <FiltersBar
+        filters={filters}
+        onChange={handleFiltersChange}
+        categories={categories}
+      />
 
       <div className="overflow-x-auto rounded-box border border-base-300">
         <table className="table table-zebra">
           <thead>
             <tr className="bg-base-200">
-              <Th label="Date" sortKey="date" sort={sort} order={order} onClick={onHeaderClick} />
-              <Th label="Value" sortKey="value" sort={sort} order={order} onClick={onHeaderClick} />
-              <Th label="Description" sortKey="description" sort={sort} order={order} onClick={onHeaderClick} />
-              <Th label="Category" sortKey="category" sort={sort} order={order} onClick={onHeaderClick} />
+              <Th
+                label="Date"
+                sortKey="date"
+                sort={sort}
+                order={order}
+                onClick={onHeaderClick}
+              />
+              <Th
+                label="Value"
+                sortKey="value"
+                sort={sort}
+                order={order}
+                onClick={onHeaderClick}
+              />
+              <Th
+                label="Description"
+                sortKey="description"
+                sort={sort}
+                order={order}
+                onClick={onHeaderClick}
+              />
+              <Th
+                label="Category"
+                sortKey="category"
+                sort={sort}
+                order={order}
+                onClick={onHeaderClick}
+              />
               <th>Subcategory</th>
               <th className="text-center">Joint</th>
               <th>Reimburse</th>
@@ -249,7 +312,9 @@ export function ExpensesClient() {
                     value={editForm}
                     onChange={setEditForm}
                     categories={categories}
-                    onSubmit={() => updateM.mutate({ id: e.id, input: editForm })}
+                    onSubmit={() =>
+                      updateM.mutate({ id: e.id, input: editForm })
+                    }
                     onCancel={() => {
                       setEditingId(null);
                       setEditForm(null);
@@ -259,8 +324,7 @@ export function ExpensesClient() {
                 );
               }
 
-              const awaiting =
-                e.reimbursementAmount != null && !e.reimbursedAt;
+              const awaiting = e.reimbursementAmount != null && !e.reimbursedAt;
 
               return (
                 <tr
@@ -277,16 +341,20 @@ export function ExpensesClient() {
                   }
                 >
                   <td>{toIsoDate(new Date(e.date))}</td>
-                  <td className="font-mono whitespace-nowrap">{formatValue(e.value)}</td>
+                  <td className="font-mono whitespace-nowrap">
+                    {formatValue(e.value)}
+                  </td>
                   <td>{e.description}</td>
                   <td>{e.category.name}</td>
                   <td>{e.subcategory?.name ?? "—"}</td>
                   <td className="text-center">
                     {e.isJoint ? (
-                      <span className="badge badge-success badge-sm">Joint</span>
+                      <span className="badge badge-success badge-sm">
+                        Joint
+                      </span>
                     ) : (
                       <span className="badge badge-ghost badge-sm">
-                        {isOwner ? "Private" : e.user.name ?? "Private"}
+                        {isOwner ? "Private" : (e.user.name ?? "Private")}
                       </span>
                     )}
                   </td>
@@ -294,7 +362,10 @@ export function ExpensesClient() {
                     <ReimbursementCell
                       expense={e}
                       isOwner={canEdit}
-                      busy={updateReimbursementM.isPending || confirmReceivedM.isPending}
+                      busy={
+                        updateReimbursementM.isPending ||
+                        confirmReceivedM.isPending
+                      }
                       onToggle={(checked) =>
                         updateReimbursementM.mutate({
                           id: e.id,
@@ -353,12 +424,22 @@ export function ExpensesClient() {
         </table>
       </div>
 
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        onChange={setPage}
+      />
+
       {/* Dialog for editing reimbursement on an existing expense */}
       <ReimbursementDialog
         key={reimbTarget?.id ?? "none-reimb"}
         open={!!reimbTarget}
         expense={reimbTarget}
-        readOnly={!reimbTarget || (reimbTarget.userId !== userId && !reimbTarget.isJoint)}
+        readOnly={
+          !reimbTarget ||
+          (reimbTarget.userId !== userId && !reimbTarget.isJoint)
+        }
         onClose={() => setReimbTarget(null)}
         onSave={(input) => {
           if (!reimbTarget) return;
@@ -376,7 +457,8 @@ export function ExpensesClient() {
             ? {
                 id: "__create__",
                 value: displayCreateForm.value || "0",
-                description: displayCreateForm.description.trim() || "New expense",
+                description:
+                  displayCreateForm.description.trim() || "New expense",
                 comment: null,
                 date: new Date().toISOString(),
                 isJoint: displayCreateForm.isJoint,
@@ -426,7 +508,9 @@ function ReimbursementCell({
   onOpen: () => void;
   onConfirm: () => void;
 }) {
-  const amount = expense.reimbursementAmount ? Number(expense.reimbursementAmount) : null;
+  const amount = expense.reimbursementAmount
+    ? Number(expense.reimbursementAmount)
+    : null;
   const isExpected = amount != null;
   const isReceived = !!expense.reimbursedAt;
 
@@ -532,7 +616,10 @@ function FiltersBar({
   categories: CategoryDTO[];
 }) {
   const tops = useMemo(
-    () => categories.filter((c) => !c.parentId).sort((a, b) => a.name.localeCompare(b.name)),
+    () =>
+      categories
+        .filter((c) => !c.parentId)
+        .sort((a, b) => a.name.localeCompare(b.name)),
     [categories],
   );
   const subs = useMemo(
@@ -606,7 +693,9 @@ function FiltersBar({
             onChange={(e) =>
               set(
                 "isJoint",
-                e.target.value === "" ? undefined : (e.target.value as "true" | "false"),
+                e.target.value === ""
+                  ? undefined
+                  : (e.target.value as "true" | "false"),
               )
             }
           >

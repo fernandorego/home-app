@@ -1,8 +1,17 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireSession, isErrorResponse, badRequest, handleZod } from "@/lib/api";
-import { taskFilterSchema, taskInputSchema, TASK_PRIORITIES } from "@/lib/validators";
+import {
+  requireSession,
+  isErrorResponse,
+  badRequest,
+  handleZod,
+} from "@/lib/api";
+import {
+  taskFilterSchema,
+  taskInputSchema,
+  TASK_PRIORITIES,
+} from "@/lib/validators";
 
 export async function GET(req: Request) {
   const session = await requireSession();
@@ -33,24 +42,40 @@ export async function GET(req: Request) {
     ],
   };
 
-  const tasks = await prisma.task.findMany({
-    where,
-    orderBy: filter.sort === "priority" ? undefined : { [filter.sort]: filter.order },
-    include: {
-      user: { select: { id: true, name: true, email: true, image: true } },
-      assignee: { select: { id: true, name: true, email: true, image: true } },
-    },
-  });
+  const include = {
+    user: { select: { id: true, name: true, email: true, image: true } },
+    assignee: { select: { id: true, name: true, email: true, image: true } },
+  } as const;
 
+  // Priority has no natural DB ordering — fetch all matching rows, sort in
+  // memory, then slice for the requested page.
   if (filter.sort === "priority") {
+    const allTasks = await prisma.task.findMany({ where, include });
     const rank = Object.fromEntries(TASK_PRIORITIES.map((p, i) => [p, i]));
-    tasks.sort((a, b) => {
+    allTasks.sort((a, b) => {
       const diff = (rank[a.priority] ?? 0) - (rank[b.priority] ?? 0);
       return filter.order === "asc" ? diff : -diff;
     });
+    const total = allTasks.length;
+    const skip = (filter.page - 1) * filter.pageSize;
+    const data = allTasks.slice(skip, skip + filter.pageSize);
+    return NextResponse.json({ data, total });
   }
 
-  return NextResponse.json(tasks);
+  const skip = (filter.page - 1) * filter.pageSize;
+
+  const [tasks, total] = await prisma.$transaction([
+    prisma.task.findMany({
+      where,
+      orderBy: { [filter.sort]: filter.order },
+      skip,
+      take: filter.pageSize,
+      include,
+    }),
+    prisma.task.count({ where }),
+  ]);
+
+  return NextResponse.json({ data: tasks, total });
 }
 
 export async function POST(req: Request) {
@@ -62,7 +87,9 @@ export async function POST(req: Request) {
     const data = taskInputSchema.parse(body);
 
     if (data.assigneeId) {
-      const assignee = await prisma.user.findUnique({ where: { id: data.assigneeId } });
+      const assignee = await prisma.user.findUnique({
+        where: { id: data.assigneeId },
+      });
       if (!assignee) return badRequest("Assignee does not exist");
     }
 
@@ -79,7 +106,9 @@ export async function POST(req: Request) {
       },
       include: {
         user: { select: { id: true, name: true, email: true, image: true } },
-        assignee: { select: { id: true, name: true, email: true, image: true } },
+        assignee: {
+          select: { id: true, name: true, email: true, image: true },
+        },
       },
     });
 
