@@ -170,6 +170,19 @@ export function ExpensesClient() {
     onError: (err: Error) => toast.error(err.message),
   });
 
+  const toggleJointM = useMutation({
+    mutationFn: ({ id, isJoint }: { id: string; isJoint: boolean }) =>
+      apiFetch<ExpenseDTO>(`/api/expenses/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isJoint }),
+      }),
+    onSuccess: (updated) => {
+      invalidate();
+      toast.success(updated.isJoint ? "Marked as joint" : "Marked as private");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
   const updateReimbursementM = useMutation({
     mutationFn: ({ id, input }: { id: string; input: ReimbursementInput }) =>
       apiFetch<ExpenseDTO>(`/api/expenses/${id}`, {
@@ -348,13 +361,27 @@ export function ExpensesClient() {
                   <td>{e.category.name}</td>
                   <td>{e.subcategory?.name ?? "—"}</td>
                   <td className="text-center">
-                    {e.isJoint ? (
+                    {canEdit ? (
+                      <button
+                        type="button"
+                        disabled={toggleJointM.isPending}
+                        onClick={() =>
+                          toggleJointM.mutate({ id: e.id, isJoint: !e.isJoint })
+                        }
+                        className={`badge badge-sm cursor-pointer ${
+                          e.isJoint ? "badge-success" : "badge-ghost"
+                        }`}
+                        title="Click to toggle joint/private"
+                      >
+                        {e.isJoint ? "Joint" : "Private"}
+                      </button>
+                    ) : e.isJoint ? (
                       <span className="badge badge-success badge-sm">
                         Joint
                       </span>
                     ) : (
                       <span className="badge badge-ghost badge-sm">
-                        {isOwner ? "Private" : (e.user.name ?? "Private")}
+                        {e.user.name ?? "Private"}
                       </span>
                     )}
                   </td>
@@ -542,9 +569,11 @@ function ReimbursementCell({
           <button
             type="button"
             onClick={onOpen}
-            className={`badge badge-sm ${
-              isReceived ? "badge-success" : "badge-warning"
-            } cursor-pointer`}
+            className={`flex flex-col items-center justify-center gap-0 rounded-md px-2 py-0.5 text-xs leading-tight cursor-pointer ${
+              isReceived
+                ? "bg-success text-success-content"
+                : "bg-warning text-warning-content"
+            }`}
             title={
               (isReceived ? "Received · " : "Awaiting · ") +
               eurFormatter.format(amount ?? 0) +
@@ -554,9 +583,14 @@ function ReimbursementCell({
                 : "")
             }
           >
-            {isReceived ? "✓ " : ""}
-            {eurFormatter.format(amount ?? 0)}
-            {expense.reimburser ? ` · ${expense.reimburser}` : ""}
+            <span className="font-semibold">
+              {isReceived ? "✓ " : ""}
+              {eurFormatter.format(amount ?? 0)}
+            </span>
+            <span>
+              {isReceived ? "Received" : "Awaiting"}
+              {expense.reimburser ? ` · ${expense.reimburser}` : ""}
+            </span>
           </button>
           {!isReceived && (
             <button

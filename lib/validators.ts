@@ -5,7 +5,7 @@ export const expenseInputSchema = z.object({
   description: z.string().trim().min(1, "Description is required").max(200),
   comment: z.string().trim().max(2000).optional().nullable(),
   date: z.coerce.date(),
-  isJoint: z.boolean().default(true),
+  isJoint: z.boolean().default(false),
   categoryId: z.string().min(1, "Category is required"),
   subcategoryId: z.string().min(1).optional().nullable(),
   reimbursementAmount: z.coerce

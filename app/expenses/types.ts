@@ -33,7 +33,7 @@ export const emptyForm = (date: string): FormState => ({
   categoryId: "",
   subcategoryId: "",
   date,
-  isJoint: true,
+  isJoint: false,
   reimb: null,
 });
 

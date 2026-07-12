@@ -1,6 +1,7 @@
 // Datasource and generator
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -87,7 +88,7 @@ model Expense {
   description   String
   comment       String?
   date          DateTime
-  isJoint       Boolean  @default(true)
+  isJoint       Boolean  @default(false)
 
   // Reimbursement: expected refund (can be partial of value), source
   // (e.g. employer / insurance), and confirmation timestamp once received.
