@@ -12,6 +12,7 @@ export function NavBar() {
 
   const links = [
     { href: "/expenses", label: "Expenses" },
+    { href: "/income", label: "Income" },
     { href: "/tasks", label: "To-Do" },
     { href: "/shopping", label: "Shopping" },
   ];

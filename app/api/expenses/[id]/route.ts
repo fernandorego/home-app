@@ -55,6 +55,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
         comment: data.comment === undefined ? undefined : data.comment,
         date: data.date ?? undefined,
         isJoint: data.isJoint ?? undefined,
+        coverflexStatus: data.coverflexStatus ?? undefined,
         categoryId: data.categoryId ?? undefined,
         subcategoryId: data.subcategoryId === undefined ? undefined : data.subcategoryId,
         reimbursementAmount:

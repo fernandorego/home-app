@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession, isErrorResponse } from "@/lib/api";
 import { visibleExpenseWhere } from "@/lib/visibility";
+import { decimalToNumber, userCost } from "@/lib/expense-math";
 
 function startOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
@@ -21,12 +21,6 @@ function monthKey(d: Date) {
 }
 function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
-}
-
-function decimalToNumber(v: Prisma.Decimal | string | number | null | undefined) {
-  if (v == null) return 0;
-  if (typeof v === "number") return v;
-  return Number(v.toString());
 }
 
 type PieRange = "month" | "lastMonth" | "3m" | "ytd";
@@ -84,7 +78,6 @@ export async function GET(req: Request) {
   const lastMonthStart = addMonths(monthStart, -1);
   const lineWindowStart = addMonths(monthStart, -(lineMonths - 1));
   const pie = pieRangeWindow(now, pieRange);
-  const yearStart = startOfYear(now);
 
   // Pull a window wide enough for every aggregation we need.
   const fetchStart = new Date(
@@ -92,7 +85,6 @@ export async function GET(req: Request) {
       lineWindowStart.getTime(),
       pie.start.getTime(),
       lastMonthStart.getTime(),
-      yearStart.getTime(),
     ),
   );
 
@@ -129,18 +121,7 @@ export async function GET(req: Request) {
 
   // ---- Running aggregates ----
   let monthTotal = 0;
-  let monthRefundExpected = 0;
   let lastMonthTotal = 0;
-  let jointThisMonth = 0;
-  let privateThisMonth = 0;
-  let reimbursedYTD = 0;
-  let largestExpense: {
-    id: string;
-    description: string;
-    value: number;
-    date: Date;
-    categoryName: string;
-  } | null = null;
 
   // ---- Cumulative daily totals for this month and last month ----
   const thisMonthDailyTotals = new Map<number, number>(); // day -> total
@@ -149,11 +130,21 @@ export async function GET(req: Request) {
   // ---- Pie data for selected range ----
   const pieByCategory = new Map<string, { name: string; total: number }>();
 
-  // ---- Reimburser leaderboard (received reimbursements YTD) ----
-  const reimburserMap = new Map<string, { name: string; total: number; count: number }>();
+  // ---- This month's expenses, for the "Spent this month" detail popup ----
+  const monthExpenseDetails: Array<{
+    id: string;
+    description: string;
+    date: string;
+    value: number;
+    categoryName: string;
+  }> = [];
 
   for (const e of recentExpenses) {
-    const v = decimalToNumber(e.value);
+    const cost = userCost(
+      decimalToNumber(e.value),
+      decimalToNumber(e.reimbursementAmount),
+      e.isJoint,
+    );
     const k = monthKey(e.date);
     const idx = idxByMonth.get(k);
     const topId = e.category.parentId ?? e.categoryId;
@@ -161,49 +152,35 @@ export async function GET(req: Request) {
 
     if (idx !== undefined) {
       const arr = monthlyByCategory.get(topId);
-      if (arr) arr[idx] += v;
+      if (arr) arr[idx] += cost;
     }
 
     if (e.date >= monthStart) {
-      monthTotal += v;
-      monthRefundExpected += decimalToNumber(e.reimbursementAmount);
-      if (e.isJoint) jointThisMonth += v;
-      else privateThisMonth += v;
+      monthTotal += cost;
       const day = e.date.getDate();
-      thisMonthDailyTotals.set(day, (thisMonthDailyTotals.get(day) ?? 0) + v);
-      if (!largestExpense || v > largestExpense.value) {
-        largestExpense = {
-          id: e.id,
-          description: e.description,
-          value: v,
-          date: e.date,
-          categoryName: topName,
-        };
-      }
+      thisMonthDailyTotals.set(day, (thisMonthDailyTotals.get(day) ?? 0) + cost);
+      monthExpenseDetails.push({
+        id: e.id,
+        description: e.description,
+        date: e.date.toISOString(),
+        value: cost,
+        categoryName: topName,
+      });
     } else if (e.date >= lastMonthStart && e.date < monthStart) {
-      lastMonthTotal += v;
+      lastMonthTotal += cost;
       const day = e.date.getDate();
-      lastMonthDailyTotals.set(day, (lastMonthDailyTotals.get(day) ?? 0) + v);
+      lastMonthDailyTotals.set(day, (lastMonthDailyTotals.get(day) ?? 0) + cost);
     }
 
     // Pie totals within selected range
     if (e.date >= pie.start && e.date < pie.end) {
       const cur = pieByCategory.get(topId) ?? { name: topName, total: 0 };
-      cur.total += v;
+      cur.total += cost;
       pieByCategory.set(topId, cur);
     }
-
-    // Reimbursements received year-to-date
-    if (e.reimbursedAt && e.reimbursedAt >= yearStart) {
-      const amount = decimalToNumber(e.reimbursementAmount);
-      reimbursedYTD += amount;
-      const who = e.reimburser?.trim() || "Unspecified";
-      const cur = reimburserMap.get(who) ?? { name: who, total: 0, count: 0 };
-      cur.total += amount;
-      cur.count += 1;
-      reimburserMap.set(who, cur);
-    }
   }
+
+  monthExpenseDetails.sort((a, b) => b.value - a.value);
 
   // ---- Build line chart data ----
   const totalsByCategory = [...topCategoriesRows]
@@ -235,28 +212,6 @@ export async function GET(req: Request) {
     }
     return point;
   });
-
-  // ---- Over-budget (this month) ----
-  const overBudgetThisMonth: Array<{
-    id: string;
-    name: string;
-    budget: number;
-    spent: number;
-    overshoot: number;
-  }> = [];
-  for (const x of totalsByCategory) {
-    const budget =
-      x.c.monthlyBudget != null ? decimalToNumber(x.c.monthlyBudget) : null;
-    if (budget != null && x.currentMonthValue > budget) {
-      overBudgetThisMonth.push({
-        id: x.c.id,
-        name: x.c.name,
-        budget,
-        spent: x.currentMonthValue,
-        overshoot: x.currentMonthValue - budget,
-      });
-    }
-  }
 
   // ---- Pie (selected range) ----
   const sortedPie = [...pieByCategory.values()].sort((a, b) => b.total - a.total);
@@ -298,7 +253,7 @@ export async function GET(req: Request) {
         { reimbursedAt: null },
       ],
     },
-    orderBy: { date: "desc" },
+    orderBy: { reimbursementAmount: "desc" },
     select: {
       id: true,
       description: true,
@@ -306,71 +261,76 @@ export async function GET(req: Request) {
       value: true,
       reimbursementAmount: true,
       reimburser: true,
+      category: { select: { name: true, parentId: true } },
+      categoryId: true,
     },
   });
   const awaitingTotal = awaitingRows.reduce(
     (s, r) => s + decimalToNumber(r.reimbursementAmount),
     0,
   );
-  const awaitingDetails = awaitingRows.map((r) => ({
-    id: r.id,
-    description: r.description,
-    date: r.date.toISOString(),
-    value: decimalToNumber(r.value),
-    amount: decimalToNumber(r.reimbursementAmount),
-    reimburser: r.reimburser,
-  }));
-
-  // ---- Reimburser leaderboard ----
-  const reimburserLeaderboard = [...reimburserMap.values()]
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 5);
-
-  // ---- Tasks + Shopping ----
-  const tasksRaw = await prisma.task.findMany({
-    where: { completed: false },
-    include: { assignee: { select: { id: true, name: true, email: true } } },
-    orderBy: [{ deadline: "asc" }, { createdAt: "desc" }],
-    take: 6,
+  const awaitingDetails = awaitingRows.map((r) => {
+    const topId = r.category.parentId ?? r.categoryId;
+    return {
+      id: r.id,
+      description: r.description,
+      date: r.date.toISOString(),
+      value: decimalToNumber(r.value),
+      amount: decimalToNumber(r.reimbursementAmount),
+      reimburser: r.reimburser,
+      categoryName: topCatById.get(topId)?.name ?? r.category.name,
+    };
   });
-  const shoppingRaw = await prisma.shoppingItem.findMany({
-    where: { bought: false },
-    orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
-    take: 6,
+
+  // ---- Awaiting Coverflex (all time) ----
+  const awaitingCoverflexRows = await prisma.expense.findMany({
+    where: {
+      AND: [visibility, { coverflexStatus: "WAITING" }],
+    },
+    orderBy: { value: "desc" },
+    select: {
+      id: true,
+      description: true,
+      date: true,
+      value: true,
+      coverflexStatus: true,
+      category: { select: { name: true, parentId: true } },
+      categoryId: true,
+    },
+  });
+  const awaitingCoverflexTotal = awaitingCoverflexRows.reduce(
+    (s, r) => s + decimalToNumber(r.value),
+    0,
+  );
+  const awaitingCoverflexDetails = awaitingCoverflexRows.map((r) => {
+    const topId = r.category.parentId ?? r.categoryId;
+    return {
+      id: r.id,
+      description: r.description,
+      date: r.date.toISOString(),
+      value: decimalToNumber(r.value),
+      coverflexStatus: r.coverflexStatus,
+      categoryName: topCatById.get(topId)?.name ?? r.category.name,
+    };
   });
 
   return NextResponse.json({
     monthLabel: now.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
     expenses: {
       monthTotal,
-      monthRefundExpected,
-      monthNet: monthTotal - monthRefundExpected,
       lastMonthTotal,
-      dailyAverage: todayDay > 0 ? monthTotal / todayDay : 0,
-      daysInMonthSoFar: todayDay,
-      daysInCurrentMonth: dimThis,
-      projectedMonthTotal: todayDay > 0 ? (monthTotal / todayDay) * dimThis : 0,
-      jointThisMonth,
-      privateThisMonth,
-      largestExpense: largestExpense
-        ? {
-            id: largestExpense.id,
-            description: largestExpense.description,
-            value: largestExpense.value,
-            date: largestExpense.date.toISOString(),
-            categoryName: largestExpense.categoryName,
-          }
-        : null,
-      reimbursedYTD,
+      monthExpenseDetails,
       awaitingTotal,
       awaitingCount: awaitingRows.length,
       awaitingDetails,
+      awaitingCoverflexTotal,
+      awaitingCoverflexCount: awaitingCoverflexRows.length,
+      awaitingCoverflexDetails,
       chartData,
       chartCategories: chartCategories.map(({ series, ...c }) => {
         void series;
         return c;
       }),
-      overBudgetThisMonth,
       topCategories: topPieCategories,
       pieRangeLabel: pie.label,
       pieRangeTotal: pieTotal,
@@ -380,9 +340,6 @@ export async function GET(req: Request) {
         lastMonthAtSameDay,
         lastMonthTotal,
       },
-      reimburserLeaderboard,
     },
-    tasks: tasksRaw,
-    shopping: shoppingRaw,
   });
 }

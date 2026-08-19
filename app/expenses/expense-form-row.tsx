@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import type { CategoryDTO } from "@/lib/api-client";
 import { CheckIcon, MinusIcon, PlusIcon, XIcon } from "@/components/icons";
+import { COVERFLEX_LABELS, CoverflexIcon, coverflexBtnClass, nextCoverflexStatus } from "./coverflex";
 import type { FormState } from "./types";
 
 const eur = new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR" });
@@ -124,6 +125,17 @@ export function ExpenseFormRow({
           onChange={(e) => set("isJoint", e.target.checked)}
           aria-label="Joint expense"
         />
+      </td>
+      <td className="text-center">
+        <button
+          type="button"
+          className={`btn btn-xs btn-square btn-ghost ${coverflexBtnClass(value.coverflexStatus)}`}
+          onClick={() => set("coverflexStatus", nextCoverflexStatus(value.coverflexStatus))}
+          aria-label={`Coverflex: ${COVERFLEX_LABELS[value.coverflexStatus]}`}
+          title={`Coverflex: ${COVERFLEX_LABELS[value.coverflexStatus]} (click for ${COVERFLEX_LABELS[nextCoverflexStatus(value.coverflexStatus)]})`}
+        >
+          <CoverflexIcon status={value.coverflexStatus} />
+        </button>
       </td>
       <td>
         <div className="flex items-center gap-1.5">

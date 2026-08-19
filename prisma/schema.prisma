@@ -8,6 +8,12 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum CoverflexStatus {
+  RECEIPT
+  WAITING
+  PAID
+}
+
 // ---------- Auth.js (NextAuth v5) Prisma adapter models ----------
 
 model User {
@@ -24,6 +30,7 @@ model User {
   tasksCreated    Task[] @relation("TaskCreator")
   tasksAssigned   Task[] @relation("TaskAssignee")
   shoppingItems   ShoppingItem[]
+  incomeEntries   IncomeEntry[]
 }
 
 model Account {
@@ -82,6 +89,13 @@ model Category {
   @@unique([name, parentId])
 }
 
+model Reimburser {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Expense {
   id            String   @id @default(cuid())
   value         Decimal
@@ -89,6 +103,7 @@ model Expense {
   comment       String?
   date          DateTime
   isJoint       Boolean  @default(false)
+  coverflexStatus CoverflexStatus @default(RECEIPT)
 
   // Reimbursement: expected refund (can be partial of value), source
   // (e.g. employer / insurance), and confirmation timestamp once received.
@@ -112,6 +127,29 @@ model Expense {
   @@index([userId])
   @@index([categoryId])
   @@index([reimbursedAt])
+}
+
+// Monthly income breakdown, per user. All rubrics except `vencimento` are
+// subtracted from it to get the month's total (see /api/income).
+model IncomeEntry {
+  id                   String   @id @default(cuid())
+  month                DateTime // always normalized to the 1st of the month
+
+  vencimento           Decimal  @default(0)
+  isencaoHorario       Decimal  @default(0)
+  subFerias            Decimal  @default(0)
+  isencaoHorarioFerias Decimal  @default(0)
+  subsidioNatal        Decimal  @default(0)
+  walletCoverflex      Decimal  @default(0)
+
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id])
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([userId, month])
+  @@index([month])
 }
 
 model Task {

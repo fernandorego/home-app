@@ -26,13 +26,33 @@ export async function GET(req: Request) {
     throw err;
   }
 
+  // Case- and accent-insensitive search (e.g. "saude" matches "Saúde"):
+  // Prisma's `contains` can't call the unaccent() SQL function, so resolve
+  // matching ids via a raw query first, then intersect with the other
+  // filters (including visibility) in the main query below.
+  let searchMatchIds: string[] | null = null;
+  if (filter.q) {
+    const pattern = `%${filter.q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+    const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "Expense"
+      WHERE unaccent(lower(description)) LIKE unaccent(lower(${pattern}))
+         OR (comment IS NOT NULL AND unaccent(lower(comment)) LIKE unaccent(lower(${pattern})))
+    `;
+    searchMatchIds = rows.map((r) => r.id);
+  }
+
   const where: Prisma.ExpenseWhereInput = {
     AND: [
       visibleExpenseWhere(session.user.id),
       filter.categoryId ? { categoryId: filter.categoryId } : {},
-      filter.subcategoryId ? { subcategoryId: filter.subcategoryId } : {},
+      filter.subcategoryId
+        ? filter.subcategoryId === "__none__"
+          ? { subcategoryId: null }
+          : { subcategoryId: filter.subcategoryId }
+        : {},
       filter.userId ? { userId: filter.userId } : {},
       filter.isJoint !== undefined ? { isJoint: filter.isJoint } : {},
+      filter.coverflexStatus ? { coverflexStatus: filter.coverflexStatus } : {},
       filter.from ? { date: { gte: filter.from } } : {},
       filter.to ? { date: { lte: filter.to } } : {},
       filter.reimburse === "awaiting"
@@ -42,14 +62,7 @@ export async function GET(req: Request) {
           : filter.reimburse === "none"
             ? { reimbursementAmount: null }
             : {},
-      filter.q
-        ? {
-            OR: [
-              { description: { contains: filter.q } },
-              { comment: { contains: filter.q } },
-            ],
-          }
-        : {},
+      searchMatchIds ? { id: { in: searchMatchIds } } : {},
     ],
   };
 
@@ -112,6 +125,7 @@ export async function POST(req: Request) {
         comment: data.comment ?? null,
         date: data.date,
         isJoint: data.isJoint,
+        coverflexStatus: data.coverflexStatus,
         categoryId: data.categoryId,
         subcategoryId: data.subcategoryId ?? null,
         reimbursementAmount:

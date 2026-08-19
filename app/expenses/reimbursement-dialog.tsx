@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ExpenseDTO } from "@/lib/api-client";
+import { useQuery } from "@tanstack/react-query";
+import { apiFetch, type ExpenseDTO, type ReimburserDTO } from "@/lib/api-client";
 import { CheckIcon, XIcon } from "@/components/icons";
 import { toIsoDate, todayIso, type ReimbursementInput } from "./types";
 
 export type { ReimbursementInput };
+
+const CUSTOM_REIMBURSER = "__custom__";
 
 type Props = {
   open: boolean;
@@ -33,6 +36,19 @@ export function ReimbursementDialog({
   const [confirmedAt, setConfirmedAt] = useState(
     expense?.reimbursedAt ? toIsoDate(new Date(expense.reimbursedAt)) : "",
   );
+
+  const reimbursersQ = useQuery({
+    queryKey: ["reimbursers"],
+    queryFn: () => apiFetch<ReimburserDTO[]>("/api/reimbursers"),
+  });
+  const reimbursers = reimbursersQ.data ?? [];
+  const knownNames = reimbursers.map((r) => r.name);
+  const reimburserSelectValue =
+    reimburser === ""
+      ? ""
+      : knownNames.includes(reimburser)
+        ? reimburser
+        : CUSTOM_REIMBURSER;
 
   useEffect(() => {
     const el = ref.current;
@@ -148,14 +164,34 @@ export function ReimbursementDialog({
           {/* Reimburser */}
           <label className="form-control">
             <span className="label-text font-medium mb-1">Reimbursed by</span>
-            <input
-              type="text"
-              className="input input-bordered"
-              placeholder="e.g. Acme Corp, Allianz, …"
-              value={reimburser}
-              onChange={(e) => setReimburser(e.target.value)}
-              readOnly={readOnly}
-            />
+            <select
+              className="select select-bordered"
+              value={reimburserSelectValue}
+              onChange={(e) => {
+                const v = e.target.value;
+                setReimburser(v === CUSTOM_REIMBURSER ? "" : v);
+              }}
+              disabled={readOnly}
+            >
+              <option value="">— none —</option>
+              {reimbursers.map((r) => (
+                <option key={r.id} value={r.name}>
+                  {r.name}
+                </option>
+              ))}
+              <option value={CUSTOM_REIMBURSER}>Custom…</option>
+            </select>
+            {reimburserSelectValue === CUSTOM_REIMBURSER && (
+              <input
+                type="text"
+                autoFocus
+                className="input input-bordered mt-2"
+                placeholder="Enter name"
+                value={reimburser}
+                onChange={(e) => setReimburser(e.target.value)}
+                readOnly={readOnly}
+              />
+            )}
           </label>
 
           {/* Confirmation date */}
