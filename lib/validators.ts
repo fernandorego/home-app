@@ -1,11 +1,16 @@
 import { z } from "zod";
 
+export const COVERFLEX_STATUSES = ["RECEIPT", "WAITING", "PAID"] as const;
+export const coverflexStatusSchema = z.enum(COVERFLEX_STATUSES);
+export type CoverflexStatus = z.infer<typeof coverflexStatusSchema>;
+
 export const expenseInputSchema = z.object({
   value: z.coerce.number().refine((v) => Number.isFinite(v), "Invalid amount"),
   description: z.string().trim().min(1, "Description is required").max(200),
   comment: z.string().trim().max(2000).optional().nullable(),
   date: z.coerce.date(),
   isJoint: z.boolean().default(false),
+  coverflexStatus: coverflexStatusSchema.default("RECEIPT"),
   categoryId: z.string().min(1, "Category is required"),
   subcategoryId: z.string().min(1).optional().nullable(),
   reimbursementAmount: z.coerce
@@ -31,6 +36,33 @@ export const categoryInputSchema = z.object({
 
 export const categoryUpdateSchema = categoryInputSchema.partial();
 
+export const reimburserInputSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(120),
+});
+
+export const reimburserUpdateSchema = reimburserInputSchema.partial();
+
+const nonNegativeAmount = z.coerce
+  .number()
+  .refine((v) => Number.isFinite(v) && v >= 0, "Invalid amount");
+
+export const incomeInputSchema = z.object({
+  month: z.coerce.date(),
+  vencimento: nonNegativeAmount.default(0),
+  isencaoHorario: nonNegativeAmount.default(0),
+  subFerias: nonNegativeAmount.default(0),
+  isencaoHorarioFerias: nonNegativeAmount.default(0),
+  subsidioNatal: nonNegativeAmount.default(0),
+  walletCoverflex: nonNegativeAmount.default(0),
+});
+
+export const incomeUpdateSchema = incomeInputSchema.partial();
+
+export const incomeFilterSchema = z.object({
+  year: z.coerce.number().int().optional(),
+  userId: z.string().optional(),
+});
+
 export const expenseFilterSchema = z.object({
   categoryId: z.string().optional(),
   subcategoryId: z.string().optional(),
@@ -43,6 +75,7 @@ export const expenseFilterSchema = z.object({
   to: z.coerce.date().optional(),
   q: z.string().optional(),
   reimburse: z.enum(["awaiting", "received", "none"]).optional(),
+  coverflexStatus: coverflexStatusSchema.optional(),
   sort: z
     .enum(["date", "value", "description", "category", "createdAt"])
     .optional()
@@ -56,6 +89,11 @@ export type ExpenseInput = z.infer<typeof expenseInputSchema>;
 export type ExpenseUpdate = z.infer<typeof expenseUpdateSchema>;
 export type CategoryInput = z.infer<typeof categoryInputSchema>;
 export type CategoryUpdate = z.infer<typeof categoryUpdateSchema>;
+export type ReimburserInput = z.infer<typeof reimburserInputSchema>;
+export type ReimburserUpdate = z.infer<typeof reimburserUpdateSchema>;
+export type IncomeInput = z.infer<typeof incomeInputSchema>;
+export type IncomeUpdate = z.infer<typeof incomeUpdateSchema>;
+export type IncomeFilter = z.infer<typeof incomeFilterSchema>;
 export type ExpenseFilter = z.infer<typeof expenseFilterSchema>;
 
 export const TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;

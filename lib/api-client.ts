@@ -35,6 +35,28 @@ export type CategoryDTO = {
   updatedAt: string;
 };
 
+export type ReimburserDTO = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IncomeEntryDTO = {
+  id: string;
+  month: string;
+  vencimento: string;
+  isencaoHorario: string;
+  subFerias: string;
+  isencaoHorarioFerias: string;
+  subsidioNatal: string;
+  walletCoverflex: string;
+  userId: string;
+  user: { id: string; name: string | null; email: string };
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type UserDTO = {
   id: string;
   name: string | null;
@@ -72,6 +94,8 @@ export type TaskDTO = {
   updatedAt: string;
 };
 
+export type CoverflexStatus = "RECEIPT" | "WAITING" | "PAID";
+
 export type ExpenseDTO = {
   id: string;
   value: string;
@@ -79,6 +103,7 @@ export type ExpenseDTO = {
   comment: string | null;
   date: string;
   isJoint: boolean;
+  coverflexStatus: CoverflexStatus;
   categoryId: string;
   category: { id: string; name: string };
   subcategoryId: string | null;
@@ -101,23 +126,14 @@ export type DashboardDTO = {
   monthLabel: string;
   expenses: {
     monthTotal: number;
-    monthRefundExpected: number;
-    monthNet: number;
     lastMonthTotal: number;
-    dailyAverage: number;
-    daysInMonthSoFar: number;
-    daysInCurrentMonth: number;
-    projectedMonthTotal: number;
-    jointThisMonth: number;
-    privateThisMonth: number;
-    largestExpense: {
+    monthExpenseDetails: Array<{
       id: string;
       description: string;
-      value: number;
       date: string;
+      value: number;
       categoryName: string;
-    } | null;
-    reimbursedYTD: number;
+    }>;
     awaitingTotal: number;
     awaitingCount: number;
     awaitingDetails: Array<{
@@ -127,6 +143,17 @@ export type DashboardDTO = {
       value: number;
       amount: number;
       reimburser: string | null;
+      categoryName: string;
+    }>;
+    awaitingCoverflexTotal: number;
+    awaitingCoverflexCount: number;
+    awaitingCoverflexDetails: Array<{
+      id: string;
+      description: string;
+      date: string;
+      value: number;
+      coverflexStatus: CoverflexStatus;
+      categoryName: string;
     }>;
     chartData: Array<Record<string, string | number>>;
     chartCategories: Array<{
@@ -135,13 +162,6 @@ export type DashboardDTO = {
       monthlyBudget: number | null;
       currentMonthValue: number;
       overBudget: boolean;
-    }>;
-    overBudgetThisMonth: Array<{
-      id: string;
-      name: string;
-      budget: number;
-      spent: number;
-      overshoot: number;
     }>;
     topCategories: Array<{ name: string; total: number }>;
     pieRangeLabel: string;
@@ -156,25 +176,5 @@ export type DashboardDTO = {
       lastMonthAtSameDay: number;
       lastMonthTotal: number;
     };
-    reimburserLeaderboard: Array<{
-      name: string;
-      total: number;
-      count: number;
-    }>;
   };
-  tasks: Array<{
-    id: string;
-    description: string;
-    priority: TaskDTO["priority"];
-    recurrence: TaskDTO["recurrence"];
-    deadline: string | null;
-    assignee: { id: string; name: string | null; email: string } | null;
-  }>;
-  shopping: Array<{
-    id: string;
-    name: string;
-    quantity: string | null;
-    recurrence: ShoppingItemDTO["recurrence"];
-    dueDate: string | null;
-  }>;
 };

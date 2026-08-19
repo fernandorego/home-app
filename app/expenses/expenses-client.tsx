@@ -12,6 +12,7 @@ import toast from "react-hot-toast";
 import {
   apiFetch,
   type CategoryDTO,
+  type CoverflexStatus,
   type ExpenseDTO,
   type Paginated,
 } from "@/lib/api-client";
@@ -25,6 +26,7 @@ import {
 } from "@/components/icons";
 import { ExpenseFormRow } from "./expense-form-row";
 import { ReimbursementDialog } from "./reimbursement-dialog";
+import { COVERFLEX_LABELS, CoverflexIcon, coverflexBtnClass, nextCoverflexStatus } from "./coverflex";
 import {
   emptyForm,
   toIsoDate,
@@ -42,6 +44,7 @@ function formStateToInput(s: FormState) {
     description: s.description.trim(),
     date: new Date(`${s.date}T12:00:00`).toISOString(),
     isJoint: s.isJoint,
+    coverflexStatus: s.coverflexStatus,
     categoryId: s.categoryId,
     subcategoryId: s.subcategoryId || null,
     reimbursementAmount: s.reimb?.reimbursementAmount ?? null,
@@ -58,6 +61,7 @@ function expenseToFormState(e: ExpenseDTO): FormState {
     subcategoryId: e.subcategoryId ?? "",
     date: toIsoDate(new Date(e.date)),
     isJoint: e.isJoint,
+    coverflexStatus: e.coverflexStatus,
     reimb: null,
   };
 }
@@ -84,6 +88,8 @@ export function ExpensesClient() {
     if (filters.to) sp.set("to", filters.to);
     if (filters.q) sp.set("q", filters.q);
     if (filters.reimburse) sp.set("reimburse", filters.reimburse);
+    if (filters.coverflexStatus)
+      sp.set("coverflexStatus", filters.coverflexStatus);
     sp.set("page", String(page));
     sp.set("pageSize", String(PAGE_SIZE));
     return sp.toString();
@@ -179,6 +185,25 @@ export function ExpensesClient() {
     onSuccess: (updated) => {
       invalidate();
       toast.success(updated.isJoint ? "Marked as joint" : "Marked as private");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const updateCoverflexM = useMutation({
+    mutationFn: ({
+      id,
+      coverflexStatus,
+    }: {
+      id: string;
+      coverflexStatus: ExpenseDTO["coverflexStatus"];
+    }) =>
+      apiFetch<ExpenseDTO>(`/api/expenses/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ coverflexStatus }),
+      }),
+    onSuccess: (updated) => {
+      invalidate();
+      toast.success(`Coverflex: ${COVERFLEX_LABELS[updated.coverflexStatus]}`);
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -280,6 +305,7 @@ export function ExpensesClient() {
               />
               <th>Subcategory</th>
               <th className="text-center">Joint</th>
+              <th className="text-center">Coverflex</th>
               <th>Reimburse</th>
               <th>Actions</th>
             </tr>
@@ -299,7 +325,7 @@ export function ExpensesClient() {
 
             {expensesQ.isLoading && (
               <tr>
-                <td colSpan={8} className="text-center py-6">
+                <td colSpan={9} className="text-center py-6">
                   <span className="loading loading-spinner loading-md" />
                 </td>
               </tr>
@@ -307,7 +333,7 @@ export function ExpensesClient() {
 
             {!expensesQ.isLoading && expenses.length === 0 && (
               <tr>
-                <td colSpan={8} className="text-center py-6 opacity-60">
+                <td colSpan={9} className="text-center py-6 opacity-60">
                   No expenses match these filters.
                 </td>
               </tr>
@@ -384,6 +410,27 @@ export function ExpensesClient() {
                         {e.user.name ?? "Private"}
                       </span>
                     )}
+                  </td>
+                  <td className="text-center">
+                    <button
+                      type="button"
+                      className={`btn btn-xs btn-square btn-ghost ${coverflexBtnClass(e.coverflexStatus)}`}
+                      disabled={!canEdit || updateCoverflexM.isPending}
+                      onClick={() =>
+                        updateCoverflexM.mutate({
+                          id: e.id,
+                          coverflexStatus: nextCoverflexStatus(e.coverflexStatus),
+                        })
+                      }
+                      aria-label={`Coverflex: ${COVERFLEX_LABELS[e.coverflexStatus]}`}
+                      title={`Coverflex: ${COVERFLEX_LABELS[e.coverflexStatus]}${
+                        canEdit
+                          ? ` (click for ${COVERFLEX_LABELS[nextCoverflexStatus(e.coverflexStatus)]})`
+                          : ""
+                      }`}
+                    >
+                      <CoverflexIcon status={e.coverflexStatus} />
+                    </button>
                   </td>
                   <td>
                     <ReimbursementCell
@@ -489,6 +536,7 @@ export function ExpensesClient() {
                 comment: null,
                 date: new Date().toISOString(),
                 isJoint: displayCreateForm.isJoint,
+                coverflexStatus: displayCreateForm.coverflexStatus,
                 categoryId: "",
                 category: { id: "", name: "" },
                 subcategoryId: null,
@@ -670,7 +718,7 @@ function FiltersBar({
   return (
     <div className="card bg-base-200">
       <div className="card-body py-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-8 gap-2">
           <input
             type="text"
             className="input input-sm input-bordered"
@@ -700,9 +748,9 @@ function FiltersBar({
             className="select select-sm select-bordered"
             value={filters.subcategoryId ?? ""}
             onChange={(e) => set("subcategoryId", e.target.value || undefined)}
-            disabled={!filters.categoryId || subs.length === 0}
           >
             <option value="">All subcategories</option>
+            <option value="__none__">(no subcategory)</option>
             {subs.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -753,6 +801,25 @@ function FiltersBar({
             <option value="awaiting">Awaiting</option>
             <option value="received">Received</option>
             <option value="none">None</option>
+          </select>
+          <select
+            className="select select-sm select-bordered"
+            value={filters.coverflexStatus ?? ""}
+            onChange={(e) =>
+              set(
+                "coverflexStatus",
+                e.target.value === ""
+                  ? undefined
+                  : (e.target.value as CoverflexStatus),
+              )
+            }
+          >
+            <option value="">All Coverflex</option>
+            {(Object.keys(COVERFLEX_LABELS) as CoverflexStatus[]).map((s) => (
+              <option key={s} value={s}>
+                {COVERFLEX_LABELS[s]}
+              </option>
+            ))}
           </select>
         </div>
         {Object.values(filters).some(Boolean) && (

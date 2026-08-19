@@ -1,3 +1,5 @@
+import type { CoverflexStatus } from "@/lib/api-client";
+
 export type SortKey = "date" | "value" | "description" | "category" | "createdAt";
 export type Order = "asc" | "desc";
 
@@ -15,6 +17,7 @@ export type Filters = {
   to?: string;
   q?: string;
   reimburse?: "awaiting" | "received" | "none";
+  coverflexStatus?: CoverflexStatus;
 };
 
 export type FormState = {
@@ -24,6 +27,7 @@ export type FormState = {
   subcategoryId: string;
   date: string; // yyyy-mm-dd
   isJoint: boolean;
+  coverflexStatus: CoverflexStatus;
   reimb: ReimbursementInput | null;
 };
 
@@ -34,6 +38,7 @@ export const emptyForm = (date: string): FormState => ({
   subcategoryId: "",
   date,
   isJoint: false,
+  coverflexStatus: "RECEIPT",
   reimb: null,
 });
 
