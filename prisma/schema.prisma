@@ -241,3 +241,14 @@ model ShoppingItem {
   @@index([dueDate])
   @@index([userId])
 }
+
+// Single-row app-wide settings, editable in Admin. Only one row is ever
+// used (id "singleton") — see lib/dashboard-settings.ts.
+model DashboardSetting {
+  id                       String   @id @default(cuid())
+  // Estimated "healthy" Expenses/Income ratio, stored as a fraction (0.5 =
+  // 50%). Used to color the ratio shown in the "Income vs expenses"
+  // dashboard tooltip: red above this, green at or below it.
+  expensesIncomePct        Decimal  @default(0.5)
+  updatedAt                DateTime @updatedAt
+}

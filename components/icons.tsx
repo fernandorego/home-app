@@ -1,5 +1,26 @@
 type IconProps = { className?: string };
 
+export function CarIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M5 17h14a1 1 0 0 0 1-1v-3.28a1 1 0 0 0-.42-.81l-1.55-1.13-1.4-3.5A2 2 0 0 0 15.03 6H8.97a2 2 0 0 0-1.86 1.28l-1.4 3.5-1.55 1.13a1 1 0 0 0-.42.81V16a1 1 0 0 0 1 1z" />
+      <path d="M3 12.5h18" />
+      <circle cx="7.5" cy="17" r="1.6" />
+      <circle cx="16.5" cy="17" r="1.6" />
+    </svg>
+  );
+}
+
 export function FilterIcon({ className = "h-4 w-4" }: IconProps) {
   return (
     <svg

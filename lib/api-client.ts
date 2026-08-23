@@ -198,3 +198,24 @@ export type DashboardDTO = {
     };
   };
 };
+
+export type IncomeVsExpensesDTO = {
+  period: string;
+  label: string;
+  chartData: Array<{ label: string; income: number; expense: number }>;
+  totalIncome: number;
+  totalExpense: number;
+  difference: number;
+  comparison: {
+    incomeTypeName: string;
+    categoryName: string;
+    available: boolean;
+    data: Array<{ label: string; incomeAmount: number; expenseAmount: number }>;
+  };
+};
+
+export type DashboardSettingDTO = {
+  id: string;
+  expensesIncomePct: string;
+  updatedAt: string;
+};

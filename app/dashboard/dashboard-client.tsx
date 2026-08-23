@@ -21,7 +21,8 @@ import {
 import { apiFetch, type CategoryDTO, type DashboardDTO } from "@/lib/api-client";
 import { COVERFLEX_LABELS } from "../expenses/coverflex";
 import { SearchIcon } from "@/components/icons";
-import { CategoryBreakdownCard } from "./category-breakdown";
+import { CategoryBreakdownCard, PERIOD_OPTIONS } from "./category-breakdown";
+import { IncomeVsExpensesSection } from "./income-vs-expenses";
 import { NEUTRAL_CATEGORY_COLOR, buildCategoryColorMap } from "./category-colors";
 import { ExpenseDetailModal, type DetailRow } from "./expense-detail-modal";
 import type { Period } from "@/lib/dashboard-period";
@@ -220,8 +221,30 @@ export function DashboardClient() {
         }
       />
 
+      {/* Shared page filters (full width) */}
+      <div className="card bg-base-100 border border-base-300">
+        <div className="card-body py-3 flex-row flex-wrap items-center justify-between gap-2">
+          <h2 className="card-title text-base">Filters</h2>
+          <div className="join">
+            {PERIOD_OPTIONS.map((p) => (
+              <button
+                key={p.value}
+                type="button"
+                className={`btn btn-xs join-item ${period === p.value ? "btn-primary" : "btn-ghost"}`}
+                onClick={() => setPeriod(p.value)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Category breakdown (full width) */}
-      <CategoryBreakdownCard period={period} onPeriodChange={setPeriod} />
+      <CategoryBreakdownCard period={period} />
+
+      {/* Income vs expenses + Reembolso Kms vs Carro (full width) */}
+      <IncomeVsExpensesSection period={period} />
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

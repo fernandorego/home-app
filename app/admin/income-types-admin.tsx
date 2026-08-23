@@ -25,6 +25,9 @@ type PatchInput = Partial<{
 // Percentages are stored as fractions (0.23) but edited as whole numbers
 // (23) — same convention used on the Income page itself.
 const percentToFraction = (v: string) => (v ? Number(v) / 100 : 0);
+// Rounds to 2 decimal places and drops trailing zeros (23.4500 -> "23.45",
+// 23 -> "23") so a whole-number rate doesn't display as "23.00%".
+const formatPct = (fraction: number) => String(Number((fraction * 100).toFixed(2)));
 
 export function IncomeTypesAdmin() {
   const qc = useQueryClient();
@@ -222,7 +225,7 @@ function PctInput({
       <span className="opacity-60 text-xs">{label}</span>
       <input
         type="number"
-        step="0.1"
+        step="0.01"
         min="0"
         max="100"
         inputMode="decimal"
@@ -248,7 +251,7 @@ function PctField({
   disabled?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(String(Number(value) * 100));
+  const [draft, setDraft] = useState(formatPct(Number(value)));
 
   if (!editing) {
     return (
@@ -256,13 +259,13 @@ function PctField({
         type="button"
         className="badge badge-outline"
         onClick={() => {
-          setDraft(String(Number(value) * 100));
+          setDraft(formatPct(Number(value)));
           setEditing(true);
         }}
         title={`${label}: click to change`}
         disabled={disabled}
       >
-        {label} {(Number(value) * 100).toFixed(0)}%
+        {label} {formatPct(Number(value))}%
       </button>
     );
   }

@@ -6,6 +6,7 @@ import { CheckIcon, PlusIcon, TrashIcon } from "@/components/icons";
 import {
   computeTotal,
   emptyLine,
+  fractionToPercent,
   lineNet,
   monthLabel,
   type LineFormState,
@@ -109,8 +110,8 @@ export function IncomeLinesDialog({
                       // Only overwrite the % fields if they hadn't been
                       // touched from the previous default (0) — otherwise a
                       // deliberate override on type-switch would be lost.
-                      irsPct: nextType ? String(Number(nextType.irsPct) * 100) : line.irsPct,
-                      ssPct: nextType ? String(Number(nextType.ssPct) * 100) : line.ssPct,
+                      irsPct: nextType ? fractionToPercent(Number(nextType.irsPct)) : line.irsPct,
+                      ssPct: nextType ? fractionToPercent(Number(nextType.ssPct)) : line.ssPct,
                     });
                   }}
                   disabled={readOnly}
@@ -142,7 +143,7 @@ export function IncomeLinesDialog({
                   <span className="opacity-60 text-xs">IRS</span>
                   <input
                     type="number"
-                    step="0.1"
+                    step="0.01"
                     min="0"
                     max="100"
                     inputMode="decimal"
@@ -158,7 +159,7 @@ export function IncomeLinesDialog({
                   <span className="opacity-60 text-xs">SS</span>
                   <input
                     type="number"
-                    step="0.1"
+                    step="0.01"
                     min="0"
                     max="100"
                     inputMode="decimal"

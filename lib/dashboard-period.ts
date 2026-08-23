@@ -1,4 +1,4 @@
-export const PERIODS = ["month", "lastMonth", "3m", "6m", "12m", "ytd"] as const;
+export const PERIODS = ["month", "lastMonth", "3m", "6m", "12m", "24m", "ytd"] as const;
 export type Period = (typeof PERIODS)[number];
 
 function startOfMonth(d: Date) {
@@ -28,8 +28,8 @@ export function resolvePeriod(
     };
   }
 
-  if (period === "3m" || period === "6m" || period === "12m") {
-    const n = period === "3m" ? 3 : period === "6m" ? 6 : 12;
+  if (period === "3m" || period === "6m" || period === "12m" || period === "24m") {
+    const n = period === "3m" ? 3 : period === "6m" ? 6 : period === "12m" ? 12 : 24;
     const start = addMonths(monthStart, -(n - 1));
     const months = Array.from({ length: n }, (_, i) => addMonths(start, i));
     return { start, end, months, label: `Last ${n} months` };

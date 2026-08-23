@@ -49,6 +49,7 @@ export const PERIOD_OPTIONS: Array<{ value: Period; label: string }> = [
   { value: "3m", label: "3m" },
   { value: "6m", label: "6m" },
   { value: "12m", label: "12m" },
+  { value: "24m", label: "24m" },
   { value: "ytd", label: "YTD" },
 ];
 
@@ -157,16 +158,10 @@ function CategoryAxisTick({
   );
 }
 
-// `period` is shared across all three Home dashboard charts (Category
-// breakdown, "By category", "Share by category") — owned by the parent
-// DashboardClient so the same range applies everywhere.
-export function CategoryBreakdownCard({
-  period,
-  onPeriodChange,
-}: {
-  period: Period;
-  onPeriodChange: (p: Period) => void;
-}) {
+// `period` is shared across every Home dashboard section — owned by the
+// parent DashboardClient (picked via the standalone filters card above)
+// so the same range applies everywhere.
+export function CategoryBreakdownCard({ period }: { period: Period }) {
   const [mode, setMode] = useState<Mode>("totals");
   const [categoryId, setCategoryId] = useState("");
   const [subcategoryId, setSubcategoryId] = useState("");
@@ -285,7 +280,7 @@ export function CategoryBreakdownCard({
       <div className="card bg-base-100 border border-base-300">
         <div className="card-body">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <h2 className="card-title text-base">Category breakdown</h2>
+            <h2 className="card-title text-base">Expenses Overview</h2>
             <div className="join">
               <button
                 type="button"
@@ -318,18 +313,6 @@ export function CategoryBreakdownCard({
                 </option>
               ))}
             </select>
-            <div className="join ml-auto">
-              {PERIOD_OPTIONS.map((p) => (
-                <button
-                  key={p.value}
-                  type="button"
-                  className={`btn btn-xs join-item ${period === p.value ? "btn-primary" : "btn-ghost"}`}
-                  onClick={() => onPeriodChange(p.value)}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
           </div>
 
           <p className="text-xs opacity-60 -mb-1">

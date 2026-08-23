@@ -10,10 +10,12 @@ import {
   type IncomeSourceTypeDTO,
 } from "@/lib/api-client";
 import { CopyIcon, PencilIcon, PlusIcon, TrashIcon } from "@/components/icons";
+import { IncomeChartSection } from "./income-chart";
 import { IncomeLinesDialog } from "./income-lines-dialog";
 import {
   currentMonthIso,
   emptyLine,
+  fractionToPercent,
   monthLabel,
   newLineKey,
   type LineFormState,
@@ -27,8 +29,8 @@ function entryToLines(entry: IncomeEntryDTO): LineFormState[] {
     id: l.id,
     sourceTypeId: l.sourceTypeId,
     grossAmount: String(l.grossAmount),
-    irsPct: String(l.irsPct * 100),
-    ssPct: String(l.ssPct * 100),
+    irsPct: fractionToPercent(l.irsPct),
+    ssPct: fractionToPercent(l.ssPct),
     note: l.note ?? "",
   }));
 }
@@ -261,6 +263,8 @@ export function IncomeClient() {
           </tbody>
         </table>
       </div>
+
+      <IncomeChartSection entries={entries} year={year} />
 
       <IncomeLinesDialog
         key={dialog?.key ?? "closed"}

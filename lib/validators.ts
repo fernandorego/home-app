@@ -66,6 +66,10 @@ const pctSchema = z.coerce
   .number()
   .refine((v) => Number.isFinite(v) && v >= 0 && v <= 1, "Must be between 0% and 100%");
 
+export const dashboardSettingUpdateSchema = z.object({
+  expensesIncomePct: pctSchema,
+});
+
 export const incomeSourceTypeInputSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(80),
   irsPct: pctSchema.default(0),
@@ -151,6 +155,7 @@ export type CategoryInput = z.infer<typeof categoryInputSchema>;
 export type CategoryUpdate = z.infer<typeof categoryUpdateSchema>;
 export type ReimburserInput = z.infer<typeof reimburserInputSchema>;
 export type ReimburserUpdate = z.infer<typeof reimburserUpdateSchema>;
+export type DashboardSettingUpdate = z.infer<typeof dashboardSettingUpdateSchema>;
 export type IncomeSourceTypeInput = z.infer<typeof incomeSourceTypeInputSchema>;
 export type IncomeSourceTypeUpdate = z.infer<typeof incomeSourceTypeUpdateSchema>;
 export type IncomeLineInput = z.infer<typeof incomeLineSchema>;

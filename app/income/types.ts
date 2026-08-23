@@ -60,6 +60,13 @@ function n(v: string): number {
   return Number.isFinite(x) ? x : 0;
 }
 
+// A tax rate is stored as a fraction (0.115) but edited as a percentage
+// ("11.5"). Rounds to 2 decimal places and drops trailing zeros, so it
+// doesn't show floating-point artifacts like "11.499999999999998".
+export function fractionToPercent(fraction: number): string {
+  return String(Number((fraction * 100).toFixed(2)));
+}
+
 export function lineNet(l: { grossAmount: string; irsPct: string; ssPct: string }): number {
   const gross = n(l.grossAmount);
   const irs = n(l.irsPct) / 100;
