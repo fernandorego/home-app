@@ -3,10 +3,12 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession, isErrorResponse, conflict, handleZod } from "@/lib/api";
 import { incomeInputSchema, incomeFilterSchema } from "@/lib/validators";
-
-function normalizeMonth(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
-}
+import {
+  incomeEntryInclude,
+  normalizeMonth,
+  serializeIncomeEntry,
+  validateLines,
+} from "@/lib/income";
 
 export async function GET(req: Request) {
   const session = await requireSession();
@@ -39,10 +41,10 @@ export async function GET(req: Request) {
       ],
     },
     orderBy: [{ month: "desc" }, { userId: "asc" }],
-    include: { user: { select: { id: true, name: true, email: true } } },
+    include: incomeEntryInclude,
   });
 
-  return NextResponse.json(entries);
+  return NextResponse.json(entries.map(serializeIncomeEntry));
 }
 
 export async function POST(req: Request) {
@@ -53,20 +55,26 @@ export async function POST(req: Request) {
     const body = await req.json();
     const data = incomeInputSchema.parse(body);
 
+    const validationError = await validateLines(data.lines);
+    if (validationError) return validationError;
+
     const created = await prisma.incomeEntry.create({
       data: {
         month: normalizeMonth(data.month),
-        vencimento: new Prisma.Decimal(data.vencimento),
-        isencaoHorario: new Prisma.Decimal(data.isencaoHorario),
-        subFerias: new Prisma.Decimal(data.subFerias),
-        isencaoHorarioFerias: new Prisma.Decimal(data.isencaoHorarioFerias),
-        subsidioNatal: new Prisma.Decimal(data.subsidioNatal),
-        walletCoverflex: new Prisma.Decimal(data.walletCoverflex),
         userId: session.user.id,
+        lines: {
+          create: data.lines.map((l) => ({
+            sourceTypeId: l.sourceTypeId,
+            grossAmount: new Prisma.Decimal(l.grossAmount),
+            irsPct: new Prisma.Decimal(l.irsPct),
+            ssPct: new Prisma.Decimal(l.ssPct),
+            note: l.note?.trim() || null,
+          })),
+        },
       },
-      include: { user: { select: { id: true, name: true, email: true } } },
+      include: incomeEntryInclude,
     });
-    return NextResponse.json(created, { status: 201 });
+    return NextResponse.json(serializeIncomeEntry(created), { status: 201 });
   } catch (err) {
     const zodErr = handleZod(err);
     if (zodErr) return zodErr;

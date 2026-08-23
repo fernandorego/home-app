@@ -80,6 +80,14 @@ model Category {
   // Monthly spending objective. Only meaningful on top-level categories
   // (subcategory expenses roll into the parent for budget purposes).
   monthlyBudget Decimal?
+  // Hex color (e.g. "#1192e8") shown for this category across every Home
+  // dashboard chart. Only meaningful on top-level categories. Null falls
+  // back to the curated default palette.
+  color         String?
+  // When false, expenses under this category (or, for a subcategory,
+  // expenses tagged with it) are excluded from every Home dashboard chart
+  // and total, without affecting the Expenses page.
+  visible       Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -129,27 +137,65 @@ model Expense {
   @@index([reimbursedAt])
 }
 
-// Monthly income breakdown, per user. All rubrics except `vencimento` are
-// subtracted from it to get the month's total (see /api/income).
+// Admin-managed list of income rubrics (e.g. "Vencimento Empresa 1", "Baixa",
+// "Ajudas de custo", "Km", "Subsídio de alimentação", "Outro"), shared by
+// both household members — mirrors Category/Reimburser. `irsPct`/`ssPct`
+// are the default tax rates applied when a line of this type is added;
+// each line can still override them. `requiresNote` forces a description
+// on every line of this type (used for "Outro", but not hardcoded to it).
+model IncomeSourceType {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  irsPct       Decimal  @default(0)
+  ssPct        Decimal  @default(0)
+  requiresNote Boolean  @default(false)
+  visible      Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  lines        IncomeLine[]
+}
+
+// One month's income for one user. Made up of one or more IncomeLines (one
+// per rubric); the month's total is the sum of each line's net amount.
 model IncomeEntry {
-  id                   String   @id @default(cuid())
-  month                DateTime // always normalized to the 1st of the month
+  id        String   @id @default(cuid())
+  month     DateTime // always normalized to the 1st of the month
 
-  vencimento           Decimal  @default(0)
-  isencaoHorario       Decimal  @default(0)
-  subFerias            Decimal  @default(0)
-  isencaoHorarioFerias Decimal  @default(0)
-  subsidioNatal        Decimal  @default(0)
-  walletCoverflex      Decimal  @default(0)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
 
-  userId               String
-  user                 User     @relation(fields: [userId], references: [id])
+  lines     IncomeLine[]
 
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, month])
   @@index([month])
+}
+
+// A single rubric within a month's income (e.g. this month's "Vencimento
+// Empresa 1"). `irsPct`/`ssPct` are snapshotted from the source type when
+// the line is added, but editable per line since rates can change.
+// Net amount = grossAmount * (1 - irsPct - ssPct).
+model IncomeLine {
+  id             String   @id @default(cuid())
+  grossAmount    Decimal
+  irsPct         Decimal
+  ssPct          Decimal
+  note           String?
+
+  incomeEntryId  String
+  incomeEntry    IncomeEntry      @relation(fields: [incomeEntryId], references: [id], onDelete: Cascade)
+
+  sourceTypeId   String
+  sourceType     IncomeSourceType @relation(fields: [sourceTypeId], references: [id])
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([incomeEntryId])
+  @@index([sourceTypeId])
 }
 
 model Task {

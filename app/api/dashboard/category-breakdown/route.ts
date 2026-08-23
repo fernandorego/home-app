@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, isErrorResponse } from "@/lib/api";
-import { visibleExpenseWhere } from "@/lib/visibility";
+import { visibleExpenseWhere, dashboardVisibleExpenseWhere } from "@/lib/visibility";
 import { decimalToNumber, userCost } from "@/lib/expense-math";
 import { PERIODS, resolvePeriod, type Period } from "@/lib/dashboard-period";
 
@@ -25,12 +25,14 @@ export async function GET(req: Request) {
   const now = new Date();
   const { start, end, months, label } = resolvePeriod(now, period);
   const visibility = visibleExpenseWhere(session.user.id);
+  const categoryVisibility = dashboardVisibleExpenseWhere();
 
   const [rows, categories] = await Promise.all([
     prisma.expense.findMany({
       where: {
         AND: [
           visibility,
+          categoryVisibility,
           { date: { gte: start, lt: end } },
           categoryId ? { categoryId } : {},
           subcategoryId ? { subcategoryId } : {},

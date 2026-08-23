@@ -41,27 +41,46 @@ export async function GET(req: Request) {
     searchMatchIds = rows.map((r) => r.id);
   }
 
+  // Subcategory multi-select can mix real ids with the "__none__" sentinel
+  // (expenses with no subcategory at all), which needs its own OR branch.
+  const subIds = filter.subcategoryId?.filter((id) => id !== "__none__") ?? [];
+  const wantsNoSubcategory = filter.subcategoryId?.includes("__none__") ?? false;
+  const subcategoryFilter: Prisma.ExpenseWhereInput = !filter.subcategoryId?.length
+    ? {}
+    : wantsNoSubcategory && subIds.length
+      ? { OR: [{ subcategoryId: null }, { subcategoryId: { in: subIds } }] }
+      : wantsNoSubcategory
+        ? { subcategoryId: null }
+        : { subcategoryId: { in: subIds } };
+
+  // "Reimburse" isn't a single column, so each selected status becomes its
+  // own condition and they're OR'd together.
+  const reimburseConditions: Prisma.ExpenseWhereInput[] = (filter.reimburse ?? []).map(
+    (r) =>
+      r === "awaiting"
+        ? { reimbursementAmount: { not: null }, reimbursedAt: null }
+        : r === "received"
+          ? { reimbursedAt: { not: null } }
+          : { reimbursementAmount: null },
+  );
+
+  // Booleans have no `in` filter — selecting both (or neither) means "any",
+  // and only a single selected value actually narrows the results.
+  const isJointValues = [...new Set(filter.isJoint ?? [])].map((v) => v === "true");
+
   const where: Prisma.ExpenseWhereInput = {
     AND: [
       visibleExpenseWhere(session.user.id),
-      filter.categoryId ? { categoryId: filter.categoryId } : {},
-      filter.subcategoryId
-        ? filter.subcategoryId === "__none__"
-          ? { subcategoryId: null }
-          : { subcategoryId: filter.subcategoryId }
-        : {},
+      filter.categoryId?.length ? { categoryId: { in: filter.categoryId } } : {},
+      subcategoryFilter,
       filter.userId ? { userId: filter.userId } : {},
-      filter.isJoint !== undefined ? { isJoint: filter.isJoint } : {},
-      filter.coverflexStatus ? { coverflexStatus: filter.coverflexStatus } : {},
+      isJointValues.length === 1 ? { isJoint: isJointValues[0] } : {},
+      filter.coverflexStatus?.length
+        ? { coverflexStatus: { in: filter.coverflexStatus } }
+        : {},
       filter.from ? { date: { gte: filter.from } } : {},
       filter.to ? { date: { lte: filter.to } } : {},
-      filter.reimburse === "awaiting"
-        ? { reimbursementAmount: { not: null }, reimbursedAt: null }
-        : filter.reimburse === "received"
-          ? { reimbursedAt: { not: null } }
-          : filter.reimburse === "none"
-            ? { reimbursementAmount: null }
-            : {},
+      reimburseConditions.length ? { OR: reimburseConditions } : {},
       searchMatchIds ? { id: { in: searchMatchIds } } : {},
     ],
   };
@@ -69,7 +88,9 @@ export async function GET(req: Request) {
   const orderBy: Prisma.ExpenseOrderByWithRelationInput =
     filter.sort === "category"
       ? { category: { name: filter.order } }
-      : { [filter.sort]: filter.order };
+      : filter.sort === "reimbursementAmount"
+        ? { reimbursementAmount: { sort: filter.order, nulls: "last" } }
+        : { [filter.sort]: filter.order };
 
   const skip = (filter.page - 1) * filter.pageSize;
 

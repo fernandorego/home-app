@@ -1,5 +1,6 @@
 "use client";
 
+import type { RefObject } from "react";
 import { CheckIcon, PlusIcon, XIcon } from "@/components/icons";
 import { RECURRENCES, RECURRENCE_LABEL, type FormState } from "./types";
 
@@ -10,9 +11,18 @@ type Props = {
   onCancel?: () => void;
   busy?: boolean;
   isEdit?: boolean;
+  firstInputRef?: RefObject<HTMLInputElement | null>;
 };
 
-export function ShoppingFormRow({ value, onChange, onSubmit, onCancel, busy, isEdit }: Props) {
+export function ShoppingFormRow({
+  value,
+  onChange,
+  onSubmit,
+  onCancel,
+  busy,
+  isEdit,
+  firstInputRef,
+}: Props) {
   const set = <K extends keyof FormState>(key: K, v: FormState[K]) =>
     onChange({ ...value, [key]: v });
 
@@ -22,6 +32,7 @@ export function ShoppingFormRow({ value, onChange, onSubmit, onCancel, busy, isE
     <tr className={isEdit ? "bg-warning/10" : "bg-base-200"}>
       <td>
         <input
+          ref={firstInputRef}
           type="text"
           className="input input-sm input-bordered w-full min-w-32"
           placeholder="Item"

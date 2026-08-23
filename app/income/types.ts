@@ -1,38 +1,45 @@
+// A rubric line being edited. `id` is present once it's an existing saved
+// line (needed for nothing client-side right now, but kept for stable keys
+// when re-ordering); percentages are edited as whole numbers ("23" = 23%)
+// and converted to fractions only when sent to the API.
+export type LineFormState = {
+  key: string; // stable React key, independent of whether it's saved yet
+  id?: string;
+  sourceTypeId: string;
+  grossAmount: string;
+  irsPct: string;
+  ssPct: string;
+  note: string;
+};
+
 export type FormState = {
   month: string; // yyyy-mm
-  vencimento: string;
-  isencaoHorario: string;
-  subFerias: string;
-  isencaoHorarioFerias: string;
-  subsidioNatal: string;
-  walletCoverflex: string;
+  lines: LineFormState[];
 };
 
-export const RUBRIC_KEYS = [
-  "isencaoHorario",
-  "subFerias",
-  "isencaoHorarioFerias",
-  "subsidioNatal",
-  "walletCoverflex",
-] as const;
-export type RubricKey = (typeof RUBRIC_KEYS)[number];
+let keySeq = 0;
+export function newLineKey(): string {
+  keySeq += 1;
+  return `line-${keySeq}`;
+}
 
-export const RUBRIC_LABELS: Record<RubricKey, string> = {
-  isencaoHorario: "Isenção de horário",
-  subFerias: "Subsídio de férias",
-  isencaoHorarioFerias: "Isenção de horário (férias)",
-  subsidioNatal: "Subsídio de Natal",
-  walletCoverflex: "Wallet (Coverflex)",
-};
+export function emptyLine(
+  overrides?: Partial<Pick<LineFormState, "sourceTypeId" | "irsPct" | "ssPct">>,
+): LineFormState {
+  return {
+    key: newLineKey(),
+    sourceTypeId: "",
+    grossAmount: "",
+    irsPct: "0",
+    ssPct: "0",
+    note: "",
+    ...overrides,
+  };
+}
 
 export const emptyForm = (month: string): FormState => ({
   month,
-  vencimento: "",
-  isencaoHorario: "",
-  subFerias: "",
-  isencaoHorarioFerias: "",
-  subsidioNatal: "",
-  walletCoverflex: "",
+  lines: [],
 });
 
 export function currentMonthIso(): string {
@@ -53,21 +60,13 @@ function n(v: string): number {
   return Number.isFinite(x) ? x : 0;
 }
 
-// vencimento is the only rubric added; every other rubric is subtracted.
-export function computeTotal(f: {
-  vencimento: string;
-  isencaoHorario: string;
-  subFerias: string;
-  isencaoHorarioFerias: string;
-  subsidioNatal: string;
-  walletCoverflex: string;
-}): number {
-  return (
-    n(f.vencimento) -
-    n(f.isencaoHorario) -
-    n(f.subFerias) -
-    n(f.isencaoHorarioFerias) -
-    n(f.subsidioNatal) -
-    n(f.walletCoverflex)
-  );
+export function lineNet(l: { grossAmount: string; irsPct: string; ssPct: string }): number {
+  const gross = n(l.grossAmount);
+  const irs = n(l.irsPct) / 100;
+  const ss = n(l.ssPct) / 100;
+  return gross * (1 - irs - ss);
+}
+
+export function computeTotal(lines: LineFormState[]): number {
+  return lines.reduce((s, l) => s + lineNet(l), 0);
 }

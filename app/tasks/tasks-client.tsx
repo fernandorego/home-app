@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   keepPreviousData,
   useMutation,
@@ -88,6 +88,7 @@ export function TasksClient() {
   const invalidate = () => qc.invalidateQueries({ queryKey: ["tasks"] });
 
   const [createForm, setCreateForm] = useState<FormState>(() => emptyForm());
+  const firstInputRef = useRef<HTMLInputElement>(null);
 
   const createM = useMutation({
     mutationFn: (input: FormState) =>
@@ -100,6 +101,7 @@ export function TasksClient() {
       setPage(1);
       toast.success("Task added");
       setCreateForm(emptyForm());
+      firstInputRef.current?.focus();
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -218,6 +220,7 @@ export function TasksClient() {
               onSubmit={() => createM.mutate(createForm)}
               busy={createM.isPending}
               users={users}
+              firstInputRef={firstInputRef}
             />
 
             {tasksQ.isLoading && (

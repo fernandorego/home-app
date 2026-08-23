@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, isErrorResponse } from "@/lib/api";
-import { visibleExpenseWhere } from "@/lib/visibility";
+import { visibleExpenseWhere, dashboardVisibleExpenseWhere } from "@/lib/visibility";
 import { decimalToNumber, userCost } from "@/lib/expense-math";
 import { PERIODS, resolvePeriod, type Period } from "@/lib/dashboard-period";
 
@@ -56,6 +56,7 @@ export async function GET(req: Request) {
     where: {
       AND: [
         visibility,
+        dashboardVisibleExpenseWhere(),
         { date: { gte: dateStart, lt: dateEnd } },
         effectiveCategoryId ? { categoryId: effectiveCategoryId } : {},
         effectiveSubcategoryId

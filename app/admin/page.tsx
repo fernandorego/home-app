@@ -1,5 +1,6 @@
 import { CategoriesAdmin } from "./categories-admin";
 import { ReimbursersAdmin } from "./reimbursers-admin";
+import { IncomeTypesAdmin } from "./income-types-admin";
 
 export default function AdminPage() {
   return (
@@ -17,6 +18,11 @@ export default function AdminPage() {
       <section>
         <h2 className="text-lg font-semibold mb-3">Reimbursers</h2>
         <ReimbursersAdmin />
+      </section>
+
+      <section>
+        <h2 className="text-lg font-semibold mb-3">Income types</h2>
+        <IncomeTypesAdmin />
       </section>
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Area,
@@ -18,11 +18,13 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { apiFetch, type DashboardDTO } from "@/lib/api-client";
+import { apiFetch, type CategoryDTO, type DashboardDTO } from "@/lib/api-client";
 import { COVERFLEX_LABELS } from "../expenses/coverflex";
 import { SearchIcon } from "@/components/icons";
 import { CategoryBreakdownCard } from "./category-breakdown";
+import { NEUTRAL_CATEGORY_COLOR, buildCategoryColorMap } from "./category-colors";
 import { ExpenseDetailModal, type DetailRow } from "./expense-detail-modal";
+import type { Period } from "@/lib/dashboard-period";
 
 function CoverflexLogo({ className = "h-4 w-4" }: { className?: string }) {
   return (
@@ -75,34 +77,37 @@ const eurCompact = new Intl.NumberFormat("pt-PT", {
   maximumFractionDigits: 1,
 });
 
-const PIE_COLORS = [
-  "#570df8",
-  "#f000b8",
-  "#37cdbe",
-  "#3abff8",
-  "#fbbd23",
-  "#84cc16",
-  "#fb923c",
-  "#9ca3af",
-];
-
-type LineMonths = 3 | 6 | 12;
-type PieRange = "month" | "lastMonth" | "3m" | "ytd";
-
 type DetailModal = "month" | "reimbursement" | "coverflex" | null;
 
 export function DashboardClient() {
-  const [lineMonths, setLineMonths] = useState<LineMonths>(6);
-  const [pieRange, setPieRange] = useState<PieRange>("month");
+  // Shared across all three charts below (Category breakdown, "By
+  // category", "Share by category") — one control, one range everywhere.
+  const [period, setPeriod] = useState<Period>("6m");
   const [detailModal, setDetailModal] = useState<DetailModal>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["dashboard", lineMonths, pieRange],
-    queryFn: () =>
-      apiFetch<DashboardDTO>(
-        `/api/dashboard?lineMonths=${lineMonths}&pieRange=${pieRange}`,
-      ),
+    queryKey: ["dashboard", period],
+    queryFn: () => apiFetch<DashboardDTO>(`/api/dashboard?period=${period}`),
   });
+
+  // Fetch the full category list so "Share by category" can use the exact
+  // same color-per-category-name mapping as the Category breakdown chart
+  // below it, regardless of which subset of categories each one displays.
+  const categoriesQ = useQuery({
+    queryKey: ["categories"],
+    queryFn: () => apiFetch<CategoryDTO[]>("/api/categories"),
+  });
+  const categoryColorMap = useMemo(
+    () =>
+      buildCategoryColorMap(
+        (categoriesQ.data ?? [])
+          .filter((c) => !c.parentId)
+          .map((c) => ({ name: c.name, color: c.color })),
+      ),
+    [categoriesQ.data],
+  );
+  const colorForCategoryName = (name: string) =>
+    name === "Other" ? NEUTRAL_CATEGORY_COLOR : categoryColorMap.get(name) ?? NEUTRAL_CATEGORY_COLOR;
 
   if (isLoading || !data) {
     return (
@@ -216,7 +221,7 @@ export function DashboardClient() {
       />
 
       {/* Category breakdown (full width) */}
-      <CategoryBreakdownCard />
+      <CategoryBreakdownCard period={period} onPeriodChange={setPeriod} />
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -224,15 +229,7 @@ export function DashboardClient() {
           <div className="card-body py-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <h2 className="card-title text-base">By category</h2>
-              <RangePicker
-                value={lineMonths}
-                onChange={(v) => setLineMonths(v)}
-                options={[
-                  { value: 3, label: "3m" },
-                  { value: 6, label: "6m" },
-                  { value: 12, label: "12m" },
-                ]}
-              />
+              <span className="text-xs opacity-60">{e.pieRangeLabel}</span>
             </div>
             {e.chartCategories.length === 0 ? (
               <div className="h-44 flex items-center justify-center opacity-50">
@@ -242,6 +239,7 @@ export function DashboardClient() {
               <CategoryLineChart
                 data={e.chartData}
                 categories={e.chartCategories}
+                colorFor={colorForCategoryName}
               />
             )}
           </div>
@@ -251,16 +249,6 @@ export function DashboardClient() {
           <div className="card-body py-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <h2 className="card-title text-base">Share by category</h2>
-              <RangePicker
-                value={pieRange}
-                onChange={(v) => setPieRange(v)}
-                options={[
-                  { value: "month", label: "Month" },
-                  { value: "lastMonth", label: "Last" },
-                  { value: "3m", label: "3m" },
-                  { value: "ytd", label: "YTD" },
-                ]}
-              />
             </div>
             <p className="text-xs opacity-60 -mt-2">
               {e.pieRangeLabel} · {eur.format(e.pieRangeTotal)}
@@ -285,8 +273,8 @@ export function DashboardClient() {
                         paddingAngle={2}
                         stroke="var(--color-base-100)"
                       >
-                        {e.topCategories.map((_, i) => (
-                          <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                        {e.topCategories.map((c, i) => (
+                          <Cell key={i} fill={colorForCategoryName(c.name)} />
                         ))}
                       </Pie>
                       <Tooltip
@@ -302,7 +290,7 @@ export function DashboardClient() {
                   </ResponsiveContainer>
                 </div>
                 <ul className="text-sm space-y-1 self-center">
-                  {e.topCategories.map((c, i) => {
+                  {e.topCategories.map((c) => {
                     const pct = e.pieRangeTotal > 0
                       ? (c.total / e.pieRangeTotal) * 100
                       : 0;
@@ -310,7 +298,7 @@ export function DashboardClient() {
                       <li key={c.name} className="flex items-center gap-2">
                         <span
                           className="inline-block w-3 h-3 rounded-sm shrink-0"
-                          style={{ background: PIE_COLORS[i % PIE_COLORS.length] }}
+                          style={{ background: colorForCategoryName(c.name) }}
                         />
                         <span className="flex-1 truncate">{c.name}</span>
                         <span className="font-mono opacity-80 whitespace-nowrap">
@@ -344,32 +332,6 @@ export function DashboardClient() {
   );
 }
 
-function RangePicker<T extends string | number>({
-  value,
-  onChange,
-  options,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: Array<{ value: T; label: string }>;
-}) {
-  return (
-    <div className="join">
-      {options.map((o) => (
-        <button
-          key={String(o.value)}
-          type="button"
-          className={`btn btn-xs join-item ${
-            o.value === value ? "btn-primary" : "btn-ghost"
-          }`}
-          onClick={() => onChange(o.value)}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 function CumulativeChart({
   data,
@@ -401,10 +363,11 @@ function CumulativeChart({
               fontSize: 12,
             }}
             labelFormatter={(d) => `Day ${d}`}
-            formatter={(v, name) => [
-              v == null ? "—" : eur.format(Number(v)),
-              name === "thisMonth" ? "This month" : "Last month",
-            ]}
+            // The Area components below already set an explicit `name`
+            // ("This month" / "Last month"), so just pass it through —
+            // comparing it against the raw dataKey never matched, which is
+            // why both series used to show "Last month" in the tooltip.
+            formatter={(v, name) => [v == null ? "—" : eur.format(Number(v)), name]}
           />
           <Area
             type="monotone"
@@ -441,13 +404,15 @@ function CumulativeChart({
 function CategoryLineChart({
   data,
   categories,
+  colorFor,
 }: {
   data: DashboardDTO["expenses"]["chartData"];
   categories: DashboardDTO["expenses"]["chartCategories"];
+  colorFor: (name: string) => string;
 }) {
-  const colored = categories.map((c, i) => ({
+  const colored = categories.map((c) => ({
     ...c,
-    color: PIE_COLORS[i % PIE_COLORS.length],
+    color: colorFor(c.name),
   }));
 
   const idToName = new Map(colored.map((c) => [c.id, c.name]));

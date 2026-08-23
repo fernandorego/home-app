@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   keepPreviousData,
   useMutation,
@@ -80,6 +80,7 @@ export function ShoppingClient() {
   const invalidate = () => qc.invalidateQueries({ queryKey: ["shopping"] });
 
   const [createForm, setCreateForm] = useState<FormState>(() => emptyForm());
+  const firstInputRef = useRef<HTMLInputElement>(null);
 
   const createM = useMutation({
     mutationFn: (input: FormState) =>
@@ -92,6 +93,7 @@ export function ShoppingClient() {
       setPage(1);
       toast.success("Added to list");
       setCreateForm(emptyForm());
+      firstInputRef.current?.focus();
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -194,6 +196,7 @@ export function ShoppingClient() {
               onChange={setCreateForm}
               onSubmit={() => createM.mutate(createForm)}
               busy={createM.isPending}
+              firstInputRef={firstInputRef}
             />
 
             {itemsQ.isLoading && (
