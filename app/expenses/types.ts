@@ -1,6 +1,13 @@
 import type { CoverflexStatus } from "@/lib/api-client";
 
-export type SortKey = "date" | "value" | "description" | "category" | "createdAt";
+export type SortKey =
+  | "date"
+  | "value"
+  | "description"
+  | "category"
+  | "createdAt"
+  | "coverflexStatus"
+  | "reimbursementAmount";
 export type Order = "asc" | "desc";
 
 export type ReimbursementInput = {
@@ -10,14 +17,14 @@ export type ReimbursementInput = {
 };
 
 export type Filters = {
-  categoryId?: string;
-  subcategoryId?: string;
-  isJoint?: "true" | "false";
+  categoryId?: string[];
+  subcategoryId?: string[];
+  isJoint?: Array<"true" | "false">;
   from?: string;
   to?: string;
   q?: string;
-  reimburse?: "awaiting" | "received" | "none";
-  coverflexStatus?: CoverflexStatus;
+  reimburse?: Array<"awaiting" | "received" | "none">;
+  coverflexStatus?: CoverflexStatus[];
 };
 
 export type FormState = {

@@ -8,6 +8,8 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  EyeIcon,
+  EyeOffIcon,
   PencilIcon,
   PlusIcon,
   TrashIcon,
@@ -64,7 +66,12 @@ export function CategoriesAdmin() {
       patchInput,
     }: {
       id: string;
-      patchInput: Partial<{ name: string; monthlyBudget: number | null }>;
+      patchInput: Partial<{
+        name: string;
+        monthlyBudget: number | null;
+        color: string | null;
+        visible: boolean;
+      }>;
     }) =>
       apiFetch<CategoryDTO>(`/api/categories/${id}`, {
         method: "PATCH",
@@ -177,6 +184,21 @@ export function CategoriesAdmin() {
                 { onSuccess: () => toast.success("Budget saved") },
               )
             }
+            onSetColor={(id, color) =>
+              patch.mutate(
+                { id, patchInput: { color } },
+                { onSuccess: () => toast.success("Color saved") },
+              )
+            }
+            onToggleVisible={(id, visible) =>
+              patch.mutate(
+                { id, patchInput: { visible } },
+                {
+                  onSuccess: () =>
+                    toast.success(visible ? "Shown on dashboard" : "Hidden from dashboard"),
+                },
+              )
+            }
             onCreateSub={(name) => create.mutate({ name, parentId: node.category.id })}
             onDelete={(id) => remove.mutate(id)}
             busy={busy}
@@ -194,6 +216,8 @@ type NodeProps = {
   onCancelEdit: () => void;
   onRename: (id: string, name: string) => void;
   onSetBudget: (id: string, monthlyBudget: number | null) => void;
+  onSetColor: (id: string, color: string | null) => void;
+  onToggleVisible: (id: string, visible: boolean) => void;
   onCreateSub: (name: string) => void;
   onDelete: (id: string) => void;
   busy: boolean;
@@ -206,6 +230,8 @@ function CategoryNode({
   onCancelEdit,
   onRename,
   onSetBudget,
+  onSetColor,
+  onToggleVisible,
   onCreateSub,
   onDelete,
   busy,
@@ -235,7 +261,9 @@ function CategoryNode({
             />
           ) : (
             <>
-              <span className="font-medium">{node.category.name}</span>
+              <span className={`font-medium ${node.category.visible ? "" : "opacity-50"}`}>
+                {node.category.name}
+              </span>
               <span className="badge badge-ghost">
                 {node.children.length} sub{node.children.length === 1 ? "" : "s"}
               </span>
@@ -243,6 +271,18 @@ function CategoryNode({
               <BudgetField
                 value={node.category.monthlyBudget}
                 onSave={(v) => onSetBudget(node.category.id, v)}
+                disabled={busy}
+              />
+
+              <ColorField
+                value={node.category.color}
+                onSave={(v) => onSetColor(node.category.id, v)}
+                disabled={busy}
+              />
+
+              <VisibilityToggle
+                visible={node.category.visible}
+                onToggle={() => onToggleVisible(node.category.id, !node.category.visible)}
                 disabled={busy}
               />
 
@@ -272,7 +312,14 @@ function CategoryNode({
                   />
                 ) : (
                   <>
-                    <span className="font-medium">{child.name}</span>
+                    <span className={`font-medium ${child.visible ? "" : "opacity-50"}`}>
+                      {child.name}
+                    </span>
+                    <VisibilityToggle
+                      visible={child.visible}
+                      onToggle={() => onToggleVisible(child.id, !child.visible)}
+                      disabled={busy}
+                    />
                     <div className="ml-auto">
                       <RowActions
                         onEdit={() => onStartEdit(child.id)}
@@ -316,6 +363,70 @@ function CategoryNode({
         )}
       </div>
     </li>
+  );
+}
+
+function VisibilityToggle({
+  visible,
+  onToggle,
+  disabled,
+}: {
+  visible: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`btn btn-ghost btn-sm btn-square ${visible ? "" : "text-warning"}`}
+      onClick={onToggle}
+      disabled={disabled}
+      aria-label={visible ? "Hide from dashboard" : "Show on dashboard"}
+      title={visible ? "Visible on dashboard — click to hide" : "Hidden from dashboard — click to show"}
+    >
+      {visible ? <EyeIcon /> : <EyeOffIcon />}
+    </button>
+  );
+}
+
+function ColorField({
+  value,
+  onSave,
+  disabled,
+}: {
+  value: string | null;
+  onSave: (v: string | null) => void;
+  disabled?: boolean;
+}) {
+  const DEFAULT = "#570df8";
+  return (
+    <label
+      className="flex items-center gap-1 cursor-pointer"
+      title="Chart color for this category"
+    >
+      <input
+        type="color"
+        className="h-6 w-6 rounded cursor-pointer border border-base-300 p-0"
+        value={value ?? DEFAULT}
+        disabled={disabled}
+        onChange={(e) => onSave(e.target.value)}
+      />
+      {value && (
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs btn-square"
+          onClick={(e) => {
+            e.preventDefault();
+            onSave(null);
+          }}
+          disabled={disabled}
+          aria-label="Reset to default color"
+          title="Reset to default color"
+        >
+          <XIcon />
+        </button>
+      )}
+    </label>
   );
 }
 

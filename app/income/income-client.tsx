@@ -4,44 +4,54 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import toast from "react-hot-toast";
-import { apiFetch, type IncomeEntryDTO } from "@/lib/api-client";
-import { PencilIcon, TrashIcon } from "@/components/icons";
-import { IncomeFormRow } from "./income-form-row";
 import {
-  RUBRIC_KEYS,
-  RUBRIC_LABELS,
-  computeTotal,
+  apiFetch,
+  type IncomeEntryDTO,
+  type IncomeSourceTypeDTO,
+} from "@/lib/api-client";
+import { CopyIcon, PencilIcon, PlusIcon, TrashIcon } from "@/components/icons";
+import { IncomeChartSection } from "./income-chart";
+import { IncomeLinesDialog } from "./income-lines-dialog";
+import {
   currentMonthIso,
-  emptyForm,
+  emptyLine,
+  fractionToPercent,
   monthLabel,
-  type FormState,
+  newLineKey,
+  type LineFormState,
 } from "./types";
 
 const eur = new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR" });
 
-function formStateToInput(s: FormState) {
-  return {
-    month: `${s.month}-01`,
-    vencimento: Number(s.vencimento || 0),
-    isencaoHorario: Number(s.isencaoHorario || 0),
-    subFerias: Number(s.subFerias || 0),
-    isencaoHorarioFerias: Number(s.isencaoHorarioFerias || 0),
-    subsidioNatal: Number(s.subsidioNatal || 0),
-    walletCoverflex: Number(s.walletCoverflex || 0),
-  };
+function entryToLines(entry: IncomeEntryDTO): LineFormState[] {
+  return entry.lines.map((l) => ({
+    key: newLineKey(),
+    id: l.id,
+    sourceTypeId: l.sourceTypeId,
+    grossAmount: String(l.grossAmount),
+    irsPct: fractionToPercent(l.irsPct),
+    ssPct: fractionToPercent(l.ssPct),
+    note: l.note ?? "",
+  }));
 }
 
-function entryToFormState(e: IncomeEntryDTO): FormState {
-  return {
-    month: e.month.slice(0, 7),
-    vencimento: e.vencimento,
-    isencaoHorario: e.isencaoHorario,
-    subFerias: e.subFerias,
-    isencaoHorarioFerias: e.isencaoHorarioFerias,
-    subsidioNatal: e.subsidioNatal,
-    walletCoverflex: e.walletCoverflex,
-  };
+function linesToInput(lines: LineFormState[]) {
+  return lines.map((l) => ({
+    sourceTypeId: l.sourceTypeId,
+    grossAmount: Number(l.grossAmount || 0),
+    irsPct: Number(l.irsPct || 0) / 100,
+    ssPct: Number(l.ssPct || 0) / 100,
+    note: l.note.trim() || null,
+  }));
 }
+
+// "Duplicate" is just a create pre-filled from another month's lines —
+// the user still picks the target month and can tweak anything (e.g. a
+// variable km/allowance amount) before it's actually saved.
+type DialogState =
+  | { mode: "create"; key: number; month: string; lines: LineFormState[] }
+  | { mode: "edit"; key: number; entry: IncomeEntryDTO; month: string; lines: LineFormState[] }
+  | null;
 
 export function IncomeClient() {
   const { data: session } = useSession();
@@ -52,37 +62,44 @@ export function IncomeClient() {
     queryKey: ["income", year],
     queryFn: () => apiFetch<IncomeEntryDTO[]>(`/api/income?year=${year}`),
   });
+  const typesQ = useQuery({
+    queryKey: ["income-types"],
+    queryFn: () => apiFetch<IncomeSourceTypeDTO[]>("/api/income-types"),
+  });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["income"] });
 
-  const [createForm, setCreateForm] = useState<FormState>(() =>
-    emptyForm(currentMonthIso()),
-  );
+  const [dialog, setDialog] = useState<DialogState>(null);
+  const [dialogKeySeq, setDialogKeySeq] = useState(0);
+  const nextDialogKey = () => {
+    setDialogKeySeq((k) => k + 1);
+    return dialogKeySeq + 1;
+  };
 
   const createM = useMutation({
-    mutationFn: (input: FormState) =>
+    mutationFn: (input: { month: string; lines: LineFormState[] }) =>
       apiFetch<IncomeEntryDTO>("/api/income", {
         method: "POST",
-        body: JSON.stringify(formStateToInput(input)),
+        body: JSON.stringify({ month: `${input.month}-01`, lines: linesToInput(input.lines) }),
       }),
-    onSuccess: (created) => {
+    onSuccess: () => {
       invalidate();
       toast.success("Income entry added");
-      setCreateForm(emptyForm(created.month.slice(0, 7)));
+      setDialog(null);
     },
     onError: (err: Error) => toast.error(err.message),
   });
 
   const updateM = useMutation({
-    mutationFn: ({ id, input }: { id: string; input: FormState }) =>
+    mutationFn: ({ id, lines }: { id: string; lines: LineFormState[] }) =>
       apiFetch<IncomeEntryDTO>(`/api/income/${id}`, {
         method: "PATCH",
-        body: JSON.stringify(formStateToInput(input)),
+        body: JSON.stringify({ lines: linesToInput(lines) }),
       }),
     onSuccess: () => {
       invalidate();
       toast.success("Updated");
-      setEditingId(null);
+      setDialog(null);
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -97,31 +114,68 @@ export function IncomeClient() {
     onError: (err: Error) => toast.error(err.message),
   });
 
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<FormState | null>(null);
-
   const entries = entriesQ.data ?? [];
+  const types = typesQ.data ?? [];
   const userId = session?.user?.id;
+
+  const openCreate = () => {
+    const month = currentMonthIso();
+    setDialog({ mode: "create", key: nextDialogKey(), month, lines: [emptyLine()] });
+  };
+  const openEdit = (entry: IncomeEntryDTO) => {
+    setDialog({
+      mode: "edit",
+      key: nextDialogKey(),
+      entry,
+      month: entry.month.slice(0, 7),
+      lines: entryToLines(entry),
+    });
+  };
+  const openDuplicate = (entry: IncomeEntryDTO) => {
+    const [y, m] = entry.month.slice(0, 7).split("-").map(Number);
+    const next = new Date(y, m, 1); // m is already 1-based here -> next month
+    const targetMonth = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
+    setDialog({
+      mode: "create",
+      key: nextDialogKey(),
+      month: targetMonth,
+      lines: entryToLines(entry),
+    });
+  };
+
+  const busy = createM.isPending || updateM.isPending;
 
   return (
     <div className="space-y-4">
-      <div className="join">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="join">
+          <button
+            type="button"
+            className="btn btn-sm join-item"
+            onClick={() => setYear((y) => y - 1)}
+          >
+            « {year - 1}
+          </button>
+          <span className="btn btn-sm join-item btn-disabled font-semibold">
+            {year}
+          </span>
+          <button
+            type="button"
+            className="btn btn-sm join-item"
+            onClick={() => setYear((y) => y + 1)}
+          >
+            {year + 1} »
+          </button>
+        </div>
+
         <button
           type="button"
-          className="btn btn-sm join-item"
-          onClick={() => setYear((y) => y - 1)}
+          className="btn btn-sm btn-primary gap-1"
+          onClick={openCreate}
+          disabled={types.length === 0}
+          title={types.length === 0 ? "Create an income type in Admin first" : "Add month"}
         >
-          « {year - 1}
-        </button>
-        <span className="btn btn-sm join-item btn-disabled font-semibold">
-          {year}
-        </span>
-        <button
-          type="button"
-          className="btn btn-sm join-item"
-          onClick={() => setYear((y) => y + 1)}
-        >
-          {year + 1} »
+          <PlusIcon /> Add month
         </button>
       </div>
 
@@ -131,26 +185,15 @@ export function IncomeClient() {
             <tr className="bg-base-200">
               <th>Month</th>
               <th>Person</th>
-              <th>Vencimento (+)</th>
-              {RUBRIC_KEYS.map((key) => (
-                <th key={key}>{RUBRIC_LABELS[key]} (−)</th>
-              ))}
+              <th>Rubrics</th>
               <th>Total</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            <IncomeFormRow
-              value={createForm}
-              onChange={setCreateForm}
-              onSubmit={() => createM.mutate(createForm)}
-              busy={createM.isPending}
-              personLabel={session?.user?.name ?? session?.user?.email ?? ""}
-            />
-
             {entriesQ.isLoading && (
               <tr>
-                <td colSpan={10} className="text-center py-6">
+                <td colSpan={5} className="text-center py-6">
                   <span className="loading loading-spinner loading-md" />
                 </td>
               </tr>
@@ -158,7 +201,7 @@ export function IncomeClient() {
 
             {!entriesQ.isLoading && entries.length === 0 && (
               <tr>
-                <td colSpan={10} className="text-center py-6 opacity-60">
+                <td colSpan={5} className="text-center py-6 opacity-60">
                   No income entries for {year}.
                 </td>
               </tr>
@@ -166,43 +209,15 @@ export function IncomeClient() {
 
             {entries.map((entry) => {
               const isOwner = userId === entry.userId;
-              const isEditing = editingId === entry.id && editForm;
-              if (isEditing && editForm) {
-                return (
-                  <IncomeFormRow
-                    key={entry.id}
-                    isEdit
-                    value={editForm}
-                    onChange={setEditForm}
-                    onSubmit={() =>
-                      updateM.mutate({ id: entry.id, input: editForm })
-                    }
-                    onCancel={() => {
-                      setEditingId(null);
-                      setEditForm(null);
-                    }}
-                    busy={updateM.isPending}
-                    personLabel={entry.user.name ?? entry.user.email}
-                  />
-                );
-              }
-
-              const total = computeTotal(entryToFormState(entry));
-
               return (
                 <tr key={entry.id}>
                   <td className="font-medium">{monthLabel(entry.month.slice(0, 7))}</td>
                   <td>{entry.user.name ?? entry.user.email}</td>
-                  <td className="font-mono whitespace-nowrap">
-                    {eur.format(Number(entry.vencimento))}
+                  <td className="text-xs opacity-70 max-w-xs truncate">
+                    {entry.lines.map((l) => l.sourceTypeName).join(", ")}
                   </td>
-                  {RUBRIC_KEYS.map((key) => (
-                    <td key={key} className="font-mono whitespace-nowrap">
-                      {eur.format(Number(entry[key]))}
-                    </td>
-                  ))}
                   <td className="font-mono font-semibold whitespace-nowrap">
-                    {eur.format(total)}
+                    {eur.format(entry.total)}
                   </td>
                   <td>
                     <div className="join">
@@ -210,14 +225,21 @@ export function IncomeClient() {
                         type="button"
                         className="btn btn-ghost btn-sm btn-square join-item"
                         disabled={!isOwner}
-                        onClick={() => {
-                          setEditingId(entry.id);
-                          setEditForm(entryToFormState(entry));
-                        }}
+                        onClick={() => openEdit(entry)}
                         aria-label="Edit"
                         title="Edit"
                       >
                         <PencilIcon />
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm btn-square join-item"
+                        disabled={!isOwner}
+                        onClick={() => openDuplicate(entry)}
+                        aria-label="Duplicate to another month"
+                        title="Duplicate to another month"
+                      >
+                        <CopyIcon />
                       </button>
                       <button
                         type="button"
@@ -241,6 +263,31 @@ export function IncomeClient() {
           </tbody>
         </table>
       </div>
+
+      <IncomeChartSection entries={entries} year={year} />
+
+      <IncomeLinesDialog
+        key={dialog?.key ?? "closed"}
+        open={dialog !== null}
+        month={dialog?.month ?? null}
+        onMonthChange={
+          dialog?.mode === "create"
+            ? (month) => setDialog((d) => (d ? { ...d, month } : d))
+            : undefined
+        }
+        initialLines={dialog?.lines ?? []}
+        types={types}
+        busy={busy}
+        onClose={() => setDialog(null)}
+        onSave={(lines) => {
+          if (!dialog) return;
+          if (dialog.mode === "create") {
+            createM.mutate({ month: dialog.month, lines });
+          } else {
+            updateM.mutate({ id: dialog.entry.id, lines });
+          }
+        }}
+      />
     </div>
   );
 }

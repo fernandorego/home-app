@@ -55,6 +55,15 @@ export async function PATCH(req: Request, { params }: Ctx) {
             : willHaveParent
               ? null
               : decimalOrNull(data.monthlyBudget),
+        color:
+          data.color === undefined
+            ? willHaveParent
+              ? null // moved under a parent → drop any custom color
+              : undefined
+            : willHaveParent
+              ? null
+              : data.color,
+        visible: data.visible === undefined ? undefined : data.visible,
       },
     });
     return NextResponse.json(updated);

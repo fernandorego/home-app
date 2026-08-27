@@ -22,7 +22,16 @@ export const expenseInputSchema = z.object({
   reimbursedAt: z.coerce.date().optional().nullable(),
 });
 
-export const expenseUpdateSchema = expenseInputSchema.partial();
+// `.partial()` alone isn't enough here: zod still applies a field's
+// `.default()` whenever it's omitted, even on a partial schema — so a PATCH
+// that only touches e.g. reimbursement (omitting isJoint/coverflexStatus)
+// would silently reset those two back to false/"RECEIPT" instead of leaving
+// them untouched. Overriding them with plain `.optional()` (no default)
+// makes an omitted field actually mean "don't change this".
+export const expenseUpdateSchema = expenseInputSchema.partial().extend({
+  isJoint: z.boolean().optional(),
+  coverflexStatus: coverflexStatusSchema.optional(),
+});
 
 export const categoryInputSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(80),
@@ -32,6 +41,12 @@ export const categoryInputSchema = z.object({
     .refine((v) => Number.isFinite(v) && v >= 0, "Invalid budget")
     .optional()
     .nullable(),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/, "Color must be a hex code like #1192e8")
+    .optional()
+    .nullable(),
+  visible: z.boolean().optional(),
 });
 
 export const categoryUpdateSchema = categoryInputSchema.partial();
@@ -46,38 +61,87 @@ const nonNegativeAmount = z.coerce
   .number()
   .refine((v) => Number.isFinite(v) && v >= 0, "Invalid amount");
 
-export const incomeInputSchema = z.object({
-  month: z.coerce.date(),
-  vencimento: nonNegativeAmount.default(0),
-  isencaoHorario: nonNegativeAmount.default(0),
-  subFerias: nonNegativeAmount.default(0),
-  isencaoHorarioFerias: nonNegativeAmount.default(0),
-  subsidioNatal: nonNegativeAmount.default(0),
-  walletCoverflex: nonNegativeAmount.default(0),
+// A tax rate stored as a fraction (0.23 = 23%), not a whole percentage.
+const pctSchema = z.coerce
+  .number()
+  .refine((v) => Number.isFinite(v) && v >= 0 && v <= 1, "Must be between 0% and 100%");
+
+export const dashboardSettingUpdateSchema = z.object({
+  expensesIncomePct: pctSchema,
 });
 
-export const incomeUpdateSchema = incomeInputSchema.partial();
+export const incomeSourceTypeInputSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(80),
+  irsPct: pctSchema.default(0),
+  ssPct: pctSchema.default(0),
+  requiresNote: z.boolean().default(false),
+  visible: z.boolean().default(true),
+});
+
+export const incomeSourceTypeUpdateSchema = incomeSourceTypeInputSchema.partial().extend({
+  irsPct: pctSchema.optional(),
+  ssPct: pctSchema.optional(),
+  requiresNote: z.boolean().optional(),
+  visible: z.boolean().optional(),
+});
+
+// A single rubric line within a month's income entry. `note` is enforced
+// as required server-side once the line's source type is resolved (its
+// `requiresNote` flag isn't knowable from the line payload alone).
+export const incomeLineSchema = z.object({
+  sourceTypeId: z.string().min(1, "Type is required"),
+  grossAmount: nonNegativeAmount,
+  irsPct: pctSchema,
+  ssPct: pctSchema,
+  note: z.string().trim().max(500).optional().nullable(),
+});
+
+export const incomeInputSchema = z.object({
+  month: z.coerce.date(),
+  lines: z.array(incomeLineSchema).min(1, "Add at least one income line"),
+});
+
+// A month's full set of lines is replaced wholesale on save (the edit
+// dialog manages the whole list at once), so `lines` stays required here —
+// only `month` is optional to update on its own.
+export const incomeUpdateSchema = z.object({
+  month: z.coerce.date().optional(),
+  lines: z.array(incomeLineSchema).min(1, "Add at least one income line").optional(),
+});
 
 export const incomeFilterSchema = z.object({
   year: z.coerce.number().int().optional(),
   userId: z.string().optional(),
 });
 
+// Query params for multi-select filters arrive as a single comma-separated
+// string (e.g. "id1,id2"); split and validate each entry.
+const commaSeparated = <T extends z.ZodTypeAny>(itemSchema: T) =>
+  z.preprocess(
+    (v) => (typeof v === "string" && v.length > 0 ? v.split(",") : undefined),
+    z.array(itemSchema).optional(),
+  );
+
 export const expenseFilterSchema = z.object({
-  categoryId: z.string().optional(),
-  subcategoryId: z.string().optional(),
+  categoryId: commaSeparated(z.string()),
+  subcategoryId: commaSeparated(z.string()),
   userId: z.string().optional(),
-  isJoint: z
-    .enum(["true", "false"])
-    .optional()
-    .transform((v) => (v == null ? undefined : v === "true")),
+  isJoint: commaSeparated(z.enum(["true", "false"])),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   q: z.string().optional(),
-  reimburse: z.enum(["awaiting", "received", "none"]).optional(),
-  coverflexStatus: coverflexStatusSchema.optional(),
+  reimburse: commaSeparated(z.enum(["awaiting", "received", "none"])),
+  coverflexStatus: commaSeparated(coverflexStatusSchema),
   sort: z
-    .enum(["date", "value", "description", "category", "createdAt"])
+    .enum([
+      "date",
+      "value",
+      "description",
+      "category",
+      "createdAt",
+      "coverflexStatus",
+      "reimbursementAmount",
+    ])
     .optional()
     .default("date"),
   order: z.enum(["asc", "desc"]).optional().default("desc"),
@@ -91,6 +155,10 @@ export type CategoryInput = z.infer<typeof categoryInputSchema>;
 export type CategoryUpdate = z.infer<typeof categoryUpdateSchema>;
 export type ReimburserInput = z.infer<typeof reimburserInputSchema>;
 export type ReimburserUpdate = z.infer<typeof reimburserUpdateSchema>;
+export type DashboardSettingUpdate = z.infer<typeof dashboardSettingUpdateSchema>;
+export type IncomeSourceTypeInput = z.infer<typeof incomeSourceTypeInputSchema>;
+export type IncomeSourceTypeUpdate = z.infer<typeof incomeSourceTypeUpdateSchema>;
+export type IncomeLineInput = z.infer<typeof incomeLineSchema>;
 export type IncomeInput = z.infer<typeof incomeInputSchema>;
 export type IncomeUpdate = z.infer<typeof incomeUpdateSchema>;
 export type IncomeFilter = z.infer<typeof incomeFilterSchema>;
@@ -113,7 +181,13 @@ export const taskInputSchema = z.object({
   assigneeId: z.string().min(1).optional().nullable(),
 });
 
-export const taskUpdateSchema = taskInputSchema.partial();
+// See the comment on expenseUpdateSchema — without this, saving an edit
+// (which omits `completed`) silently un-completes the task, and toggling
+// `completed` alone (which omits `priority`) silently resets it to MEDIUM.
+export const taskUpdateSchema = taskInputSchema.partial().extend({
+  priority: taskPrioritySchema.optional(),
+  completed: z.boolean().optional(),
+});
 
 export const taskFilterSchema = z.object({
   priority: taskPrioritySchema.optional(),
@@ -144,7 +218,11 @@ export const shoppingInputSchema = z.object({
   bought: z.boolean().default(false),
 });
 
-export const shoppingUpdateSchema = shoppingInputSchema.partial();
+// See the comment on expenseUpdateSchema — without this, saving an edit
+// (which omits `bought`) silently un-marks the item as bought.
+export const shoppingUpdateSchema = shoppingInputSchema.partial().extend({
+  bought: z.boolean().optional(),
+});
 
 export const shoppingFilterSchema = z.object({
   bought: z

@@ -10,10 +10,12 @@ import {
   handleZod,
 } from "@/lib/api";
 import { incomeUpdateSchema } from "@/lib/validators";
-
-function normalizeMonth(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
-}
+import {
+  incomeEntryInclude,
+  normalizeMonth,
+  serializeIncomeEntry,
+  validateLines,
+} from "@/lib/income";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -33,31 +35,44 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const body = await req.json();
     const data = incomeUpdateSchema.parse(body);
 
-    const updated = await prisma.incomeEntry.update({
-      where: { id },
-      data: {
-        month: data.month ? normalizeMonth(data.month) : undefined,
-        vencimento: data.vencimento != null ? new Prisma.Decimal(data.vencimento) : undefined,
-        isencaoHorario:
-          data.isencaoHorario != null ? new Prisma.Decimal(data.isencaoHorario) : undefined,
-        subFerias: data.subFerias != null ? new Prisma.Decimal(data.subFerias) : undefined,
-        isencaoHorarioFerias:
-          data.isencaoHorarioFerias != null
-            ? new Prisma.Decimal(data.isencaoHorarioFerias)
+    if (data.lines) {
+      const validationError = await validateLines(data.lines);
+      if (validationError) return validationError;
+    }
+
+    // The edit dialog manages the whole line list at once, so a lines
+    // update replaces the set wholesale rather than trying to diff it.
+    const updated = await prisma.$transaction(async (tx) => {
+      if (data.lines) {
+        await tx.incomeLine.deleteMany({ where: { incomeEntryId: id } });
+      }
+      return tx.incomeEntry.update({
+        where: { id },
+        data: {
+          month: data.month ? normalizeMonth(data.month) : undefined,
+          lines: data.lines
+            ? {
+                create: data.lines.map((l) => ({
+                  sourceTypeId: l.sourceTypeId,
+                  grossAmount: new Prisma.Decimal(l.grossAmount),
+                  irsPct: new Prisma.Decimal(l.irsPct),
+                  ssPct: new Prisma.Decimal(l.ssPct),
+                  note: l.note?.trim() || null,
+                })),
+              }
             : undefined,
-        subsidioNatal:
-          data.subsidioNatal != null ? new Prisma.Decimal(data.subsidioNatal) : undefined,
-        walletCoverflex:
-          data.walletCoverflex != null ? new Prisma.Decimal(data.walletCoverflex) : undefined,
-      },
-      include: { user: { select: { id: true, name: true, email: true } } },
+        },
+        include: incomeEntryInclude,
+      });
     });
-    return NextResponse.json(updated);
+
+    return NextResponse.json(serializeIncomeEntry(updated));
   } catch (err) {
     const zodErr = handleZod(err);
     if (zodErr) return zodErr;
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      return conflict("An income entry for this month already exists");
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      if (err.code === "P2002") return conflict("An income entry for this month already exists");
+      if (err.code === "P2025") return notFound("Income entry not found");
     }
     throw err;
   }

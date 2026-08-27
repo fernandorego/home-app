@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import type { RefObject } from "react";
 import type { CategoryDTO } from "@/lib/api-client";
 import { CheckIcon, MinusIcon, PlusIcon, XIcon } from "@/components/icons";
 import { COVERFLEX_LABELS, CoverflexIcon, coverflexBtnClass, nextCoverflexStatus } from "./coverflex";
@@ -17,6 +18,7 @@ type Props = {
   busy?: boolean;
   isEdit?: boolean;
   onReimbClick?: () => void;
+  firstInputRef?: RefObject<HTMLInputElement | null>;
 };
 
 export function ExpenseFormRow({
@@ -28,6 +30,7 @@ export function ExpenseFormRow({
   busy,
   isEdit,
   onReimbClick,
+  firstInputRef,
 }: Props) {
   const tops = useMemo(
     () => categories.filter((c) => !c.parentId).sort((a, b) => a.name.localeCompare(b.name)),
@@ -57,6 +60,7 @@ export function ExpenseFormRow({
     <tr className={isEdit ? "bg-warning/10" : "bg-base-200"}>
       <td>
         <input
+          ref={firstInputRef}
           type="date"
           className="input input-sm input-bordered"
           value={value.date}

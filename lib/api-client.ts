@@ -31,6 +31,8 @@ export type CategoryDTO = {
   name: string;
   parentId: string | null;
   monthlyBudget: string | null;
+  color: string | null;
+  visible: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -42,17 +44,35 @@ export type ReimburserDTO = {
   updatedAt: string;
 };
 
+export type IncomeSourceTypeDTO = {
+  id: string;
+  name: string;
+  irsPct: string;
+  ssPct: string;
+  requiresNote: boolean;
+  visible: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IncomeLineDTO = {
+  id: string;
+  sourceTypeId: string;
+  sourceTypeName: string;
+  grossAmount: number;
+  irsPct: number;
+  ssPct: number;
+  net: number;
+  note: string | null;
+};
+
 export type IncomeEntryDTO = {
   id: string;
   month: string;
-  vencimento: string;
-  isencaoHorario: string;
-  subFerias: string;
-  isencaoHorarioFerias: string;
-  subsidioNatal: string;
-  walletCoverflex: string;
   userId: string;
   user: { id: string; name: string | null; email: string };
+  lines: IncomeLineDTO[];
+  total: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -177,4 +197,25 @@ export type DashboardDTO = {
       lastMonthTotal: number;
     };
   };
+};
+
+export type IncomeVsExpensesDTO = {
+  period: string;
+  label: string;
+  chartData: Array<{ label: string; income: number; expense: number }>;
+  totalIncome: number;
+  totalExpense: number;
+  difference: number;
+  comparison: {
+    incomeTypeName: string;
+    categoryName: string;
+    available: boolean;
+    data: Array<{ label: string; incomeAmount: number; expenseAmount: number }>;
+  };
+};
+
+export type DashboardSettingDTO = {
+  id: string;
+  expensesIncomePct: string;
+  updatedAt: string;
 };

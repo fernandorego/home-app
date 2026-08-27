@@ -15,7 +15,15 @@ import {
 } from "recharts";
 import { apiFetch, type CategoryDTO } from "@/lib/api-client";
 import { CategoryIcon, normalize } from "./category-icons";
+import {
+  CATEGORY_COLOR_OVERRIDES,
+  CATEGORY_PALETTE,
+  NEUTRAL_CATEGORY_COLOR,
+  buildCategoryColorMap,
+  paletteColor,
+} from "./category-colors";
 import { ExpenseDetailModal, type DetailRow } from "./expense-detail-modal";
+import type { Period } from "@/lib/dashboard-period";
 
 const eur = new Intl.NumberFormat("pt-PT", {
   style: "currency",
@@ -33,40 +41,15 @@ const eurRounded = new Intl.NumberFormat("pt-PT", {
   maximumFractionDigits: 0,
 });
 
-// A larger, hand-picked categorical palette (distinct hue *and*
-// saturation/lightness, not just evenly-spaced hue) so categories stay
-// visually distinguishable even when there are a dozen-plus of them —
-// evenly-spaced hues alone tend to produce look-alike greens/teals.
-const CATEGORY_PALETTE = [
-  "#6929c4",
-  "#1192e8",
-  "#005d5d",
-  "#9f1853",
-  "#fa4d56",
-  "#198038",
-  "#002d9c",
-  "#ee538b",
-  "#b28600",
-  "#009d9a",
-  "#8a3800",
-  "#a56eff",
-  "#d2a106",
-  "#4589ff",
-  "#d12771",
-  "#12b886",
-  "#e8590c",
-  "#5c7cfa",
-];
-
-type Period = "month" | "lastMonth" | "3m" | "6m" | "12m" | "ytd";
 type Mode = "totals" | "evolution";
 
-const PERIOD_OPTIONS: Array<{ value: Period; label: string }> = [
+export const PERIOD_OPTIONS: Array<{ value: Period; label: string }> = [
   { value: "month", label: "Month" },
   { value: "lastMonth", label: "Last" },
   { value: "3m", label: "3m" },
   { value: "6m", label: "6m" },
   { value: "12m", label: "12m" },
+  { value: "24m", label: "24m" },
   { value: "ytd", label: "YTD" },
 ];
 
@@ -78,19 +61,21 @@ type BreakdownResponse = {
   bars: Array<{ key: string; label: string; value: number }>;
 };
 
-const NO_SUBCATEGORY_COLOR = "#9ca3af";
+// The chart's value axis never extends past this, no matter how large a
+// bar's real value is — see `chartBars`/`plotValue` below. Below that
+// ceiling, though, the axis scales down to fit the actual data (see
+// `niceAxisMax`) instead of always spanning the full 0–4000€ range.
+const X_AXIS_MAX = 4000;
 
-// Explicit color requests for specific categories, matched against the
-// normalized (accent-stripped, lowercase) category name. Anything not
-// listed here falls back to the palette-by-position assignment below.
-const CATEGORY_COLOR_OVERRIDES: Record<string, string> = {
-  outro: "#f76707",
-  saude: "#74c0fc",
-  carro: "#1864ab",
-  casa: "#faa2c1",
-  supermercado: "#c2255c",
-  refeicoes: "#b197fc",
-};
+// Rounds a value up to a "nice" round number for the axis's top tick
+// (1/2/5/10 × a power of ten — e.g. 837 -> 1000, 2400 -> 5000).
+function niceAxisMax(value: number): number {
+  if (value <= 0) return 100;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  const normalized = value / magnitude;
+  const niceNormalized = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return niceNormalized * magnitude;
+}
 
 const LABEL_FONT_SIZE = 10;
 const LABEL_CHAR_WIDTH = LABEL_FONT_SIZE * 0.62; // rough width of a digit/comma at this size
@@ -153,7 +138,7 @@ function CategoryAxisTick({
   colorFor: (key: string) => string;
 }) {
   const bar = bars[index ?? -1];
-  const color = bar ? colorFor(bar.key) : NO_SUBCATEGORY_COLOR;
+  const color = bar ? colorFor(bar.key) : NEUTRAL_CATEGORY_COLOR;
   return (
     <g transform={`translate(${x},${y})`}>
       <g transform="translate(-124, -6)">
@@ -173,8 +158,10 @@ function CategoryAxisTick({
   );
 }
 
-export function CategoryBreakdownCard() {
-  const [period, setPeriod] = useState<Period>("6m");
+// `period` is shared across every Home dashboard section — owned by the
+// parent DashboardClient (picked via the standalone filters card above)
+// so the same range applies everywhere.
+export function CategoryBreakdownCard({ period }: { period: Period }) {
   const [mode, setMode] = useState<Mode>("totals");
   const [categoryId, setCategoryId] = useState("");
   const [subcategoryId, setSubcategoryId] = useState("");
@@ -189,42 +176,41 @@ export function CategoryBreakdownCard() {
   });
   const categories = useMemo(() => categoriesQ.data ?? [], [categoriesQ.data]);
 
+  // Categories hidden from the dashboard (via the admin's visibility
+  // toggle) never have data here anyway (the API excludes them), so don't
+  // offer them as filter buttons either.
   const tops = useMemo(
     () =>
       categories
-        .filter((c) => !c.parentId)
+        .filter((c) => !c.parentId && c.visible)
         .sort((a, b) => a.name.localeCompare(b.name)),
     [categories],
   );
   const subs = useMemo(
     () =>
       categories
-        .filter((c) => c.parentId === categoryId)
+        .filter((c) => c.parentId === categoryId && c.visible)
         .sort((a, b) => a.name.localeCompare(b.name)),
     [categories, categoryId],
   );
 
-  // Stable color per category id, independent of sort order, so a category
-  // always renders in the same color across filters/modes. Bars are either
-  // all top-level categories or all subcategories of one category — never a
-  // mix — so each is indexed within its own (short) list rather than the
-  // combined category+subcategory list, which would push most items past
-  // the curated palette and into look-alike generated hues.
-  const paletteColor = (i: number) =>
-    i < CATEGORY_PALETTE.length
-      ? CATEGORY_PALETTE[i]
-      : `hsl(${Math.round((i * 137.508) % 360)}, 68%, 42%)`;
-
+  // Stable color per top-level category NAME, shared with the "Share by
+  // category" pie chart elsewhere on the Home page so the same category
+  // always renders in the same color across both charts. Subcategories get
+  // their own (short) position-based list instead of being folded into
+  // this global one, which would push most of them past the curated
+  // palette and into look-alike generated hues.
+  const topNameColorMap = useMemo(
+    () => buildCategoryColorMap(tops.map((c) => ({ name: c.name, color: c.color }))),
+    [tops],
+  );
   const topColorByKey = useMemo(() => {
     const map = new Map<string, string>();
-    tops.forEach((c, i) =>
-      map.set(
-        c.id,
-        CATEGORY_COLOR_OVERRIDES[normalize(c.name)] ?? paletteColor(i),
-      ),
+    tops.forEach((c) =>
+      map.set(c.id, topNameColorMap.get(c.name) ?? CATEGORY_PALETTE[0]),
     );
     return map;
-  }, [tops]);
+  }, [tops, topNameColorMap]);
   const subColorByKey = useMemo(() => {
     const map = new Map<string, string>();
     subs.forEach((c, i) =>
@@ -236,7 +222,7 @@ export function CategoryBreakdownCard() {
     return map;
   }, [subs]);
   const colorFor = (key: string) => {
-    if (key === "__none__") return NO_SUBCATEGORY_COLOR;
+    if (key === "__none__") return NEUTRAL_CATEGORY_COLOR;
     return (
       topColorByKey.get(key) ?? subColorByKey.get(key) ?? CATEGORY_PALETTE[0]
     );
@@ -262,6 +248,16 @@ export function CategoryBreakdownCard() {
   const bars = data?.bars ?? [];
   const chartHeight = Math.max(140, bars.length * 26 + 16);
   const total = bars.reduce((s, b) => s + b.value, 0);
+  // The bar itself never grows past X_AXIS_MAX on the chart — a value
+  // beyond it still renders the full-length bar, with the real amount
+  // written out. Below that ceiling, the axis's top tick scales down to
+  // fit whatever the largest bar actually is.
+  const chartBars = bars.map((b) => ({
+    ...b,
+    plotValue: Math.min(b.value, X_AXIS_MAX),
+  }));
+  const maxBarValue = bars.reduce((m, b) => Math.max(m, b.value), 0);
+  const xAxisMax = maxBarValue > X_AXIS_MAX ? X_AXIS_MAX : niceAxisMax(maxBarValue);
 
   const detailParams = useMemo(() => {
     if (!selectedBar) return null;
@@ -284,7 +280,7 @@ export function CategoryBreakdownCard() {
       <div className="card bg-base-100 border border-base-300">
         <div className="card-body">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <h2 className="card-title text-base">Category breakdown</h2>
+            <h2 className="card-title text-base">Expenses Overview</h2>
             <div className="join">
               <button
                 type="button"
@@ -317,18 +313,6 @@ export function CategoryBreakdownCard() {
                 </option>
               ))}
             </select>
-            <div className="join ml-auto">
-              {PERIOD_OPTIONS.map((p) => (
-                <button
-                  key={p.value}
-                  type="button"
-                  className={`btn btn-xs join-item ${period === p.value ? "btn-primary" : "btn-ghost"}`}
-                  onClick={() => setPeriod(p.value)}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
           </div>
 
           <p className="text-xs opacity-60 -mb-1">
@@ -363,7 +347,7 @@ export function CategoryBreakdownCard() {
                     color={
                       categoryId === c.id
                         ? "currentColor"
-                        : (topColorByKey.get(c.id) ?? NO_SUBCATEGORY_COLOR)
+                        : (topColorByKey.get(c.id) ?? NEUTRAL_CATEGORY_COLOR)
                     }
                     size={12}
                   />
@@ -385,13 +369,14 @@ export function CategoryBreakdownCard() {
                 <div style={{ height: chartHeight }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
-                      data={bars}
+                      data={chartBars}
                       layout="vertical"
                       margin={{ top: 4, right: 24, bottom: 4, left: 4 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                       <XAxis
                         type="number"
+                        domain={[0, xAxisMax]}
                         tickFormatter={(v: number) => eurCompact.format(v)}
                         tick={{ fontSize: 12 }}
                         stroke="currentColor"
@@ -400,6 +385,11 @@ export function CategoryBreakdownCard() {
                         type="category"
                         dataKey="label"
                         width={132}
+                        // Recharts' default "preserveEnd" interval thins out
+                        // ticks it estimates might overlap — but chartHeight
+                        // already grows with the number of bars precisely so
+                        // every one of them fits, so force every tick to render.
+                        interval={0}
                         tick={(props) => (
                           <CategoryAxisTick
                             {...props}
@@ -428,14 +418,14 @@ export function CategoryBreakdownCard() {
                                 {p.payload.label}
                               </div>
                               <div className="font-mono">
-                                {eur.format(Number(p.value))}
+                                {eur.format(Number(p.payload.value))}
                               </div>
                             </div>
                           );
                         }}
                       />
                       <Bar
-                        dataKey="value"
+                        dataKey="plotValue"
                         radius={[0, 4, 4, 0]}
                         cursor="pointer"
                         onClick={(d) => {
@@ -446,7 +436,7 @@ export function CategoryBreakdownCard() {
                           setSelectedBar({ key: bar.key, label: bar.label });
                         }}
                       >
-                        {bars.map((b, i) => (
+                        {chartBars.map((b, i) => (
                           <Cell key={i} fill={colorFor(b.key)} />
                         ))}
                         <LabelList dataKey="value" content={BarValueLabel} />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import {
   keepPreviousData,
   useMutation,
@@ -19,6 +19,8 @@ import {
 import { Pagination } from "@/components/pagination";
 import {
   CheckIcon,
+  EraserIcon,
+  FilterIcon,
   MinusIcon,
   PencilIcon,
   PlusIcon,
@@ -62,7 +64,14 @@ function expenseToFormState(e: ExpenseDTO): FormState {
     date: toIsoDate(new Date(e.date)),
     isJoint: e.isJoint,
     coverflexStatus: e.coverflexStatus,
-    reimb: null,
+    reimb:
+      e.reimbursementAmount != null
+        ? {
+            reimbursementAmount: Number(e.reimbursementAmount),
+            reimburser: e.reimburser,
+            reimbursedAt: e.reimbursedAt,
+          }
+        : null,
   };
 }
 
@@ -81,15 +90,16 @@ export function ExpensesClient() {
     const sp = new URLSearchParams();
     sp.set("sort", sort);
     sp.set("order", order);
-    if (filters.categoryId) sp.set("categoryId", filters.categoryId);
-    if (filters.subcategoryId) sp.set("subcategoryId", filters.subcategoryId);
-    if (filters.isJoint) sp.set("isJoint", filters.isJoint);
+    if (filters.categoryId?.length) sp.set("categoryId", filters.categoryId.join(","));
+    if (filters.subcategoryId?.length)
+      sp.set("subcategoryId", filters.subcategoryId.join(","));
+    if (filters.isJoint?.length) sp.set("isJoint", filters.isJoint.join(","));
     if (filters.from) sp.set("from", filters.from);
     if (filters.to) sp.set("to", filters.to);
     if (filters.q) sp.set("q", filters.q);
-    if (filters.reimburse) sp.set("reimburse", filters.reimburse);
-    if (filters.coverflexStatus)
-      sp.set("coverflexStatus", filters.coverflexStatus);
+    if (filters.reimburse?.length) sp.set("reimburse", filters.reimburse.join(","));
+    if (filters.coverflexStatus?.length)
+      sp.set("coverflexStatus", filters.coverflexStatus.join(","));
     sp.set("page", String(page));
     sp.set("pageSize", String(PAGE_SIZE));
     return sp.toString();
@@ -117,6 +127,7 @@ export function ExpensesClient() {
   const [createForm, setCreateFormState] = useState<FormState>(() =>
     emptyForm(""),
   );
+  const firstInputRef = useRef<HTMLInputElement>(null);
   const [createTouched, setCreateTouched] = useState(false);
 
   const displayCreateForm: FormState = createTouched
@@ -148,6 +159,7 @@ export function ExpensesClient() {
       setPage(1);
       toast.success("Expense added");
       resetCreateForm(toIsoDate(new Date(created.date)));
+      firstInputRef.current?.focus();
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -242,6 +254,8 @@ export function ExpensesClient() {
   const [reimbTarget, setReimbTarget] = useState<ExpenseDTO | null>(null);
   const [createReimbOpen, setCreateReimbOpen] = useState(false);
   const [createReimbKey, setCreateReimbKey] = useState(0);
+  const [editReimbOpen, setEditReimbOpen] = useState(false);
+  const [editReimbKey, setEditReimbKey] = useState(0);
 
   const onHeaderClick = (key: SortKey) => {
     if (sort === key) {
@@ -253,23 +267,68 @@ export function ExpensesClient() {
     setPage(1);
   };
 
-  const handleFiltersChange = (f: Filters) => {
-    setFilters(f);
+  const setFilter = <K extends keyof Filters>(key: K, v: Filters[K]) => {
+    setFilters((f) => ({ ...f, [key]: v }));
+    setPage(1);
+  };
+
+  const clearFilters = () => {
+    setFilters({});
+    setPage(1);
+  };
+
+  // Clears just the given filter field(s) — used by each column header's
+  // eraser button so clearing one column's filter leaves the others alone.
+  const clearFilterKeys = (keys: Array<keyof Filters>) => {
+    setFilters((f) => {
+      const next = { ...f };
+      for (const k of keys) delete next[k];
+      return next;
+    });
     setPage(1);
   };
 
   const expenses = expensesQ.data?.data ?? [];
   const total = expensesQ.data?.total ?? 0;
-  const categories = categoriesQ.data ?? [];
+  const categories = useMemo(() => categoriesQ.data ?? [], [categoriesQ.data]);
   const userId = session?.user?.id;
+
+  const tops = useMemo(
+    () =>
+      categories
+        .filter((c) => !c.parentId)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [categories],
+  );
+  // With no category filter active, offer every subcategory; once at least
+  // one is picked, narrow the list down to those categories' children.
+  const subs = useMemo(
+    () =>
+      categories
+        .filter((c) =>
+          filters.categoryId?.length
+            ? !!c.parentId && filters.categoryId.includes(c.parentId)
+            : !!c.parentId,
+        )
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [categories, filters.categoryId],
+  );
+
+  const anyFilterActive = Object.values(filters).some(
+    (v) => v != null && (Array.isArray(v) ? v.length > 0 : true),
+  );
 
   return (
     <div className="space-y-4">
-      <FiltersBar
-        filters={filters}
-        onChange={handleFiltersChange}
-        categories={categories}
-      />
+      {anyFilterActive && (
+        <button
+          type="button"
+          className="btn btn-xs btn-ghost"
+          onClick={clearFilters}
+        >
+          Clear filters
+        </button>
+      )}
 
       <div className="overflow-x-auto rounded-box border border-base-300">
         <table className="table table-zebra">
@@ -281,6 +340,30 @@ export function ExpensesClient() {
                 sort={sort}
                 order={order}
                 onClick={onHeaderClick}
+                filterActive={!!(filters.from || filters.to)}
+                onClear={() => clearFilterKeys(["from", "to"])}
+                filterContent={
+                  <div className="flex flex-col gap-2 w-44">
+                    <label className="flex flex-col gap-1 text-xs">
+                      From
+                      <input
+                        type="date"
+                        className="input input-sm input-bordered"
+                        value={filters.from ?? ""}
+                        onChange={(e) => setFilter("from", e.target.value || undefined)}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs">
+                      To
+                      <input
+                        type="date"
+                        className="input input-sm input-bordered"
+                        value={filters.to ?? ""}
+                        onChange={(e) => setFilter("to", e.target.value || undefined)}
+                      />
+                    </label>
+                  </div>
+                }
               />
               <Th
                 label="Value"
@@ -295,6 +378,17 @@ export function ExpensesClient() {
                 sort={sort}
                 order={order}
                 onClick={onHeaderClick}
+                filterActive={!!filters.q}
+                onClear={() => clearFilterKeys(["q"])}
+                filterContent={
+                  <input
+                    type="text"
+                    className="input input-sm input-bordered w-48"
+                    placeholder="Search description"
+                    value={filters.q ?? ""}
+                    onChange={(e) => setFilter("q", e.target.value || undefined)}
+                  />
+                }
               />
               <Th
                 label="Category"
@@ -302,11 +396,86 @@ export function ExpensesClient() {
                 sort={sort}
                 order={order}
                 onClick={onHeaderClick}
+                filterActive={!!filters.categoryId?.length}
+                onClear={() => clearFilterKeys(["categoryId"])}
+                filterContent={
+                  <CheckboxFilterList
+                    options={tops.map((c) => ({ value: c.id, label: c.name }))}
+                    selected={filters.categoryId ?? []}
+                    onChange={(next) => setFilter("categoryId", next)}
+                  />
+                }
               />
-              <th>Subcategory</th>
-              <th className="text-center">Joint</th>
-              <th className="text-center">Coverflex</th>
-              <th>Reimburse</th>
+              <FilterTh
+                label="Subcategory"
+                filterActive={!!filters.subcategoryId?.length}
+                onClear={() => clearFilterKeys(["subcategoryId"])}
+                filterContent={
+                  <CheckboxFilterList
+                    options={[
+                      { value: "__none__", label: "(no subcategory)" },
+                      ...subs.map((c) => ({ value: c.id, label: c.name })),
+                    ]}
+                    selected={filters.subcategoryId ?? []}
+                    onChange={(next) => setFilter("subcategoryId", next)}
+                  />
+                }
+              />
+              <FilterTh
+                label="Joint"
+                className="text-center"
+                filterActive={!!filters.isJoint?.length}
+                onClear={() => clearFilterKeys(["isJoint"])}
+                filterContent={
+                  <CheckboxFilterList
+                    options={[
+                      { value: "true" as const, label: "Joint" },
+                      { value: "false" as const, label: "Private" },
+                    ]}
+                    selected={filters.isJoint ?? []}
+                    onChange={(next) => setFilter("isJoint", next)}
+                  />
+                }
+              />
+              <Th
+                label="Coverflex"
+                sortKey="coverflexStatus"
+                sort={sort}
+                order={order}
+                onClick={onHeaderClick}
+                className="text-center"
+                filterActive={!!filters.coverflexStatus?.length}
+                onClear={() => clearFilterKeys(["coverflexStatus"])}
+                filterContent={
+                  <CheckboxFilterList
+                    options={(Object.keys(COVERFLEX_LABELS) as CoverflexStatus[]).map(
+                      (s) => ({ value: s, label: COVERFLEX_LABELS[s] }),
+                    )}
+                    selected={filters.coverflexStatus ?? []}
+                    onChange={(next) => setFilter("coverflexStatus", next)}
+                  />
+                }
+              />
+              <Th
+                label="Reimburse"
+                sortKey="reimbursementAmount"
+                sort={sort}
+                order={order}
+                onClick={onHeaderClick}
+                filterActive={!!filters.reimburse?.length}
+                onClear={() => clearFilterKeys(["reimburse"])}
+                filterContent={
+                  <CheckboxFilterList
+                    options={[
+                      { value: "awaiting" as const, label: "Awaiting" },
+                      { value: "received" as const, label: "Received" },
+                      { value: "none" as const, label: "None" },
+                    ]}
+                    selected={filters.reimburse ?? []}
+                    onChange={(next) => setFilter("reimburse", next)}
+                  />
+                }
+              />
               <th>Actions</th>
             </tr>
           </thead>
@@ -317,6 +486,7 @@ export function ExpensesClient() {
               categories={categories}
               onSubmit={() => createM.mutate(displayCreateForm)}
               busy={createM.isPending}
+              firstInputRef={firstInputRef}
               onReimbClick={() => {
                 setCreateReimbKey((k) => k + 1);
                 setCreateReimbOpen(true);
@@ -359,6 +529,10 @@ export function ExpensesClient() {
                       setEditForm(null);
                     }}
                     busy={updateM.isPending}
+                    onReimbClick={() => {
+                      setEditReimbKey((k) => k + 1);
+                      setEditReimbOpen(true);
+                    }}
                   />
                 );
               }
@@ -564,6 +738,51 @@ export function ExpensesClient() {
           setCreateReimbOpen(false);
         }}
       />
+
+      {/* Dialog for setting reimbursement details while editing an existing
+          expense — mirrors the create-flow dialog above: changes are staged
+          into editForm and only persisted once the row's Save is clicked. */}
+      <ReimbursementDialog
+        key={`edit-reimb-${editReimbKey}`}
+        open={editReimbOpen}
+        expense={
+          editReimbOpen && editForm
+            ? {
+                id: "__edit__",
+                value: editForm.value || "0",
+                description: editForm.description.trim() || "Expense",
+                comment: null,
+                date: new Date().toISOString(),
+                isJoint: editForm.isJoint,
+                coverflexStatus: editForm.coverflexStatus,
+                categoryId: "",
+                category: { id: "", name: "" },
+                subcategoryId: null,
+                subcategory: null,
+                reimbursementAmount:
+                  editForm.reimb?.reimbursementAmount != null
+                    ? String(editForm.reimb.reimbursementAmount)
+                    : editForm.value || "0",
+                reimburser: editForm.reimb?.reimburser ?? null,
+                reimbursedAt: editForm.reimb?.reimbursedAt ?? null,
+                userId: "",
+                user: { id: "", name: null, email: "", image: null },
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              }
+            : null
+        }
+        readOnly={false}
+        onClose={() => setEditReimbOpen(false)}
+        onSave={(input) => {
+          if (!editForm) return;
+          setEditForm({
+            ...editForm,
+            reimb: input.reimbursementAmount !== null ? input : null,
+          });
+          setEditReimbOpen(false);
+        }}
+      />
     </div>
   );
 }
@@ -664,176 +883,151 @@ function Th({
   sort,
   order,
   onClick,
+  className,
+  filterActive,
+  filterContent,
+  onClear,
 }: {
   label: string;
   sortKey: SortKey;
   sort: SortKey;
   order: Order;
   onClick: (k: SortKey) => void;
+  className?: string;
+  filterActive?: boolean;
+  filterContent?: ReactNode;
+  onClear?: () => void;
 }) {
   const active = sort === sortKey;
+  const centered = className?.includes("text-center");
   return (
-    <th>
-      <button
-        type="button"
-        onClick={() => onClick(sortKey)}
-        className="flex items-center gap-1 hover:text-primary"
-      >
-        {label}
-        <span className="opacity-60 text-xs">
-          {active ? (order === "asc" ? "▲" : "▼") : "↕"}
-        </span>
-      </button>
+    <th className={`${className ?? ""} ${filterActive ? "bg-primary/10" : ""}`}>
+      <div className={`flex items-center gap-0.5 ${centered ? "justify-center" : ""}`}>
+        <button
+          type="button"
+          onClick={() => onClick(sortKey)}
+          className={`flex items-center gap-1 hover:text-primary ${filterActive ? "text-primary font-semibold" : ""}`}
+        >
+          {label}
+          <span className="opacity-60 text-xs">
+            {active ? (order === "asc" ? "▲" : "▼") : "↕"}
+          </span>
+        </button>
+        {filterContent && (
+          <HeaderFilter active={!!filterActive}>{filterContent}</HeaderFilter>
+        )}
+        {filterActive && onClear && <ClearFilterButton onClick={onClear} />}
+      </div>
     </th>
   );
 }
 
-function FiltersBar({
-  filters,
-  onChange,
-  categories,
+function FilterTh({
+  label,
+  className,
+  filterActive,
+  filterContent,
+  onClear,
 }: {
-  filters: Filters;
-  onChange: (f: Filters) => void;
-  categories: CategoryDTO[];
+  label: string;
+  className?: string;
+  filterActive?: boolean;
+  filterContent: ReactNode;
+  onClear?: () => void;
 }) {
-  const tops = useMemo(
-    () =>
-      categories
-        .filter((c) => !c.parentId)
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [categories],
+  const centered = className?.includes("text-center");
+  return (
+    <th className={`${className ?? ""} ${filterActive ? "bg-primary/10" : ""}`}>
+      <div className={`flex items-center gap-0.5 ${centered ? "justify-center" : ""}`}>
+        <span className={filterActive ? "text-primary font-semibold" : ""}>
+          {label}
+        </span>
+        <HeaderFilter active={!!filterActive}>{filterContent}</HeaderFilter>
+        {filterActive && onClear && <ClearFilterButton onClick={onClear} />}
+      </div>
+    </th>
   );
-  const subs = useMemo(
-    () =>
-      categories
-        .filter((c) => c.parentId === filters.categoryId)
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [categories, filters.categoryId],
-  );
+}
 
-  const set = <K extends keyof Filters>(key: K, v: Filters[K]) =>
-    onChange({ ...filters, [key]: v });
+// Eraser button shown next to a column header only while that column's
+// filter is active, to clear just that one filter without opening the
+// dropdown or affecting any other column.
+function ClearFilterButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="btn btn-ghost btn-xs btn-square text-primary"
+      onClick={onClick}
+      aria-label="Clear this column's filter"
+      title="Clear this column's filter"
+    >
+      <EraserIcon className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+// A funnel icon that opens a small dropdown (native <details>-style daisyUI
+// dropdown) with the column's filter control. Highlighted while active.
+function HeaderFilter({
+  active,
+  children,
+}: {
+  active: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className="dropdown dropdown-bottom">
+      <div
+        tabIndex={0}
+        role="button"
+        className={`btn btn-ghost btn-xs btn-square ${active ? "text-primary" : "opacity-40"}`}
+        aria-label="Filter"
+        title="Filter"
+      >
+        <FilterIcon className="h-3.5 w-3.5" />
+      </div>
+      <div
+        tabIndex={0}
+        className="dropdown-content z-20 p-3 shadow-lg bg-base-100 border border-base-300 rounded-box mt-1"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// A scrollable list of checkboxes for a column's filter — lets several
+// options be selected at once instead of just one.
+function CheckboxFilterList<T extends string>({
+  options,
+  selected,
+  onChange,
+}: {
+  options: Array<{ value: T; label: string }>;
+  selected: T[];
+  onChange: (next: T[]) => void;
+}) {
+  const toggle = (v: T) =>
+    onChange(
+      selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v],
+    );
 
   return (
-    <div className="card bg-base-200">
-      <div className="card-body py-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-8 gap-2">
+    <div className="flex flex-col gap-0.5 max-h-56 overflow-y-auto w-48">
+      {options.map((opt) => (
+        <label
+          key={opt.value}
+          className="flex items-center gap-2 text-sm py-0.5 cursor-pointer hover:bg-base-200 rounded px-1"
+        >
           <input
-            type="text"
-            className="input input-sm input-bordered"
-            placeholder="Search description"
-            value={filters.q ?? ""}
-            onChange={(e) => set("q", e.target.value || undefined)}
+            type="checkbox"
+            className="checkbox checkbox-xs"
+            checked={selected.includes(opt.value)}
+            onChange={() => toggle(opt.value)}
           />
-          <select
-            className="select select-sm select-bordered"
-            value={filters.categoryId ?? ""}
-            onChange={(e) =>
-              onChange({
-                ...filters,
-                categoryId: e.target.value || undefined,
-                subcategoryId: undefined,
-              })
-            }
-          >
-            <option value="">All categories</option>
-            {tops.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <select
-            className="select select-sm select-bordered"
-            value={filters.subcategoryId ?? ""}
-            onChange={(e) => set("subcategoryId", e.target.value || undefined)}
-          >
-            <option value="">All subcategories</option>
-            <option value="__none__">(no subcategory)</option>
-            {subs.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <input
-            type="date"
-            className="input input-sm input-bordered"
-            value={filters.from ?? ""}
-            onChange={(e) => set("from", e.target.value || undefined)}
-          />
-          <input
-            type="date"
-            className="input input-sm input-bordered"
-            value={filters.to ?? ""}
-            onChange={(e) => set("to", e.target.value || undefined)}
-          />
-          <select
-            className="select select-sm select-bordered"
-            value={filters.isJoint ?? ""}
-            onChange={(e) =>
-              set(
-                "isJoint",
-                e.target.value === ""
-                  ? undefined
-                  : (e.target.value as "true" | "false"),
-              )
-            }
-          >
-            <option value="">All visibility</option>
-            <option value="true">Joint only</option>
-            <option value="false">Private only</option>
-          </select>
-          <select
-            className="select select-sm select-bordered"
-            value={filters.reimburse ?? ""}
-            onChange={(e) =>
-              set(
-                "reimburse",
-                e.target.value === ""
-                  ? undefined
-                  : (e.target.value as "awaiting" | "received" | "none"),
-              )
-            }
-          >
-            <option value="">All reimbursements</option>
-            <option value="awaiting">Awaiting</option>
-            <option value="received">Received</option>
-            <option value="none">None</option>
-          </select>
-          <select
-            className="select select-sm select-bordered"
-            value={filters.coverflexStatus ?? ""}
-            onChange={(e) =>
-              set(
-                "coverflexStatus",
-                e.target.value === ""
-                  ? undefined
-                  : (e.target.value as CoverflexStatus),
-              )
-            }
-          >
-            <option value="">All Coverflex</option>
-            {(Object.keys(COVERFLEX_LABELS) as CoverflexStatus[]).map((s) => (
-              <option key={s} value={s}>
-                {COVERFLEX_LABELS[s]}
-              </option>
-            ))}
-          </select>
-        </div>
-        {Object.values(filters).some(Boolean) && (
-          <div className="pt-2">
-            <button
-              type="button"
-              className="btn btn-xs btn-ghost"
-              onClick={() => onChange({})}
-            >
-              Clear filters
-            </button>
-          </div>
-        )}
-      </div>
+          <span className="truncate">{opt.label}</span>
+        </label>
+      ))}
     </div>
   );
 }

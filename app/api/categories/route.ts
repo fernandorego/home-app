@@ -38,8 +38,10 @@ export async function POST(req: Request) {
       data: {
         name: data.name,
         parentId: data.parentId ?? null,
-        // Budgets only make sense on top-level categories.
+        // Budgets and custom colors only make sense on top-level categories.
         monthlyBudget: data.parentId ? null : decimalOrNull(data.monthlyBudget),
+        color: data.parentId ? null : (data.color ?? null),
+        visible: data.visible ?? true,
       },
     });
     return NextResponse.json(created, { status: 201 });

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, isErrorResponse } from "@/lib/api";
-import { visibleExpenseWhere } from "@/lib/visibility";
+import { visibleExpenseWhere, dashboardVisibleExpenseWhere } from "@/lib/visibility";
 import { decimalToNumber, userCost } from "@/lib/expense-math";
+import { PERIODS, resolvePeriod, type Period } from "@/lib/dashboard-period";
 
 function startOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
@@ -10,57 +11,11 @@ function startOfMonth(d: Date) {
 function addMonths(d: Date, n: number) {
   return new Date(d.getFullYear(), d.getMonth() + n, 1, 0, 0, 0, 0);
 }
-function startOfYear(d: Date) {
-  return new Date(d.getFullYear(), 0, 1, 0, 0, 0, 0);
-}
 function daysInMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
 }
 function monthKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-function clamp(n: number, lo: number, hi: number) {
-  return Math.max(lo, Math.min(hi, n));
-}
-
-type PieRange = "month" | "lastMonth" | "3m" | "ytd";
-function pieRangeFromParam(v: string | null): PieRange {
-  if (v === "lastMonth" || v === "3m" || v === "ytd") return v;
-  return "month";
-}
-function pieRangeWindow(now: Date, range: PieRange): {
-  start: Date;
-  end: Date;
-  label: string;
-} {
-  const ms = startOfMonth(now);
-  if (range === "lastMonth") {
-    const start = addMonths(ms, -1);
-    return {
-      start,
-      end: ms,
-      label: start.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
-    };
-  }
-  if (range === "3m") {
-    return {
-      start: addMonths(ms, -2),
-      end: new Date(now.getFullYear(), now.getMonth() + 1, 1),
-      label: "Last 3 months",
-    };
-  }
-  if (range === "ytd") {
-    return {
-      start: startOfYear(now),
-      end: new Date(now.getFullYear(), now.getMonth() + 1, 1),
-      label: `${now.getFullYear()} year to date`,
-    };
-  }
-  return {
-    start: ms,
-    end: new Date(now.getFullYear(), now.getMonth() + 1, 1),
-    label: ms.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
-  };
 }
 
 const TOP_N = 5;
@@ -70,53 +25,53 @@ export async function GET(req: Request) {
   if (isErrorResponse(session)) return session;
 
   const url = new URL(req.url);
-  const lineMonths = clamp(Number(url.searchParams.get("lineMonths")) || 6, 3, 24);
-  const pieRange = pieRangeFromParam(url.searchParams.get("pieRange"));
+  const periodParam = url.searchParams.get("period");
+  // One shared period drives the line chart, the pie chart, and (via its
+  // own endpoint, given the same param) the Category breakdown chart —
+  // all three read from this single control on the client.
+  const period: Period = (PERIODS as readonly string[]).includes(periodParam ?? "")
+    ? (periodParam as Period)
+    : "6m";
 
   const now = new Date();
   const monthStart = startOfMonth(now);
   const lastMonthStart = addMonths(monthStart, -1);
-  const lineWindowStart = addMonths(monthStart, -(lineMonths - 1));
-  const pie = pieRangeWindow(now, pieRange);
+  const { start: rangeStart, end: rangeEnd, months, label: rangeLabel } = resolvePeriod(
+    now,
+    period,
+  );
 
   // Pull a window wide enough for every aggregation we need.
   const fetchStart = new Date(
-    Math.min(
-      lineWindowStart.getTime(),
-      pie.start.getTime(),
-      lastMonthStart.getTime(),
-    ),
+    Math.min(rangeStart.getTime(), lastMonthStart.getTime()),
   );
 
   const visibility = visibleExpenseWhere(session.user.id);
+  const categoryVisibility = dashboardVisibleExpenseWhere();
 
   const [recentExpenses, topCategoriesRows] = await Promise.all([
     prisma.expense.findMany({
-      where: { AND: [visibility, { date: { gte: fetchStart } }] },
+      where: { AND: [visibility, categoryVisibility, { date: { gte: fetchStart } }] },
       include: { category: { select: { id: true, name: true, parentId: true } } },
       orderBy: { date: "asc" },
     }),
     prisma.category.findMany({
-      where: { parentId: null },
+      where: { parentId: null, visible: true },
       select: { id: true, name: true, monthlyBudget: true },
     }),
   ]);
 
   // ---- Monthly buckets for the line chart ----
-  const monthDescriptors: Array<{ month: string; label: string }> = [];
-  for (let i = lineMonths - 1; i >= 0; i--) {
-    const d = addMonths(monthStart, -i);
-    monthDescriptors.push({
-      month: monthKey(d),
-      label: d.toLocaleDateString("en-US", { month: "short" }),
-    });
-  }
+  const monthDescriptors = months.map((d) => ({
+    month: monthKey(d),
+    label: d.toLocaleDateString("en-US", { month: "short" }),
+  }));
   const idxByMonth = new Map(monthDescriptors.map((m, i) => [m.month, i]));
 
   const topCatById = new Map(topCategoriesRows.map((c) => [c.id, c]));
   const monthlyByCategory = new Map<string, number[]>();
   for (const c of topCategoriesRows) {
-    monthlyByCategory.set(c.id, Array(lineMonths).fill(0));
+    monthlyByCategory.set(c.id, Array(months.length).fill(0));
   }
 
   // ---- Running aggregates ----
@@ -173,7 +128,7 @@ export async function GET(req: Request) {
     }
 
     // Pie totals within selected range
-    if (e.date >= pie.start && e.date < pie.end) {
+    if (e.date >= rangeStart && e.date < rangeEnd) {
       const cur = pieByCategory.get(topId) ?? { name: topName, total: 0 };
       cur.total += cost;
       pieByCategory.set(topId, cur);
@@ -185,7 +140,7 @@ export async function GET(req: Request) {
   // ---- Build line chart data ----
   const totalsByCategory = [...topCategoriesRows]
     .map((c) => {
-      const series = monthlyByCategory.get(c.id) ?? Array(lineMonths).fill(0);
+      const series = monthlyByCategory.get(c.id) ?? Array(months.length).fill(0);
       const total = series.reduce((s, v) => s + v, 0);
       const currentMonthValue = series[series.length - 1] ?? 0;
       return { c, series, total, currentMonthValue };
@@ -249,6 +204,7 @@ export async function GET(req: Request) {
     where: {
       AND: [
         visibility,
+        categoryVisibility,
         { reimbursementAmount: { not: null } },
         { reimbursedAt: null },
       ],
@@ -285,7 +241,7 @@ export async function GET(req: Request) {
   // ---- Awaiting Coverflex (all time) ----
   const awaitingCoverflexRows = await prisma.expense.findMany({
     where: {
-      AND: [visibility, { coverflexStatus: "WAITING" }],
+      AND: [visibility, categoryVisibility, { coverflexStatus: "WAITING" }],
     },
     orderBy: { value: "desc" },
     select: {
@@ -332,7 +288,7 @@ export async function GET(req: Request) {
         return c;
       }),
       topCategories: topPieCategories,
-      pieRangeLabel: pie.label,
+      pieRangeLabel: rangeLabel,
       pieRangeTotal: pieTotal,
       cumulative: {
         data: cumulativeData,
