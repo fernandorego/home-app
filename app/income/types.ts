@@ -67,13 +67,23 @@ export function fractionToPercent(fraction: number): string {
   return String(Number((fraction * 100).toFixed(2)));
 }
 
-export function lineNet(l: { grossAmount: string; irsPct: string; ssPct: string }): number {
+// `sign` flips a rubric like "Seguro de Saúde" to subtract from the total
+// instead of adding to it (see IncomeSourceType.sign) — defaults to "ADD"
+// so a line with no resolved type yet still previews sensibly.
+export function lineNet(
+  l: { grossAmount: string; irsPct: string; ssPct: string },
+  sign: "ADD" | "SUBTRACT" = "ADD",
+): number {
   const gross = n(l.grossAmount);
   const irs = n(l.irsPct) / 100;
   const ss = n(l.ssPct) / 100;
-  return gross * (1 - irs - ss);
+  const amount = gross * (1 - irs - ss);
+  return sign === "SUBTRACT" ? -amount : amount;
 }
 
-export function computeTotal(lines: LineFormState[]): number {
-  return lines.reduce((s, l) => s + lineNet(l), 0);
+export function computeTotal(
+  lines: LineFormState[],
+  signFor: (sourceTypeId: string) => "ADD" | "SUBTRACT" = () => "ADD",
+): number {
+  return lines.reduce((s, l) => s + lineNet(l, signFor(l.sourceTypeId)), 0);
 }

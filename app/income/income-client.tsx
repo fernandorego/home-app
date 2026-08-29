@@ -184,7 +184,6 @@ export function IncomeClient() {
           <thead>
             <tr className="bg-base-200">
               <th>Month</th>
-              <th>Person</th>
               <th>Rubrics</th>
               <th>Total</th>
               <th>Actions</th>
@@ -193,7 +192,7 @@ export function IncomeClient() {
           <tbody>
             {entriesQ.isLoading && (
               <tr>
-                <td colSpan={5} className="text-center py-6">
+                <td colSpan={4} className="text-center py-6">
                   <span className="loading loading-spinner loading-md" />
                 </td>
               </tr>
@@ -201,7 +200,7 @@ export function IncomeClient() {
 
             {!entriesQ.isLoading && entries.length === 0 && (
               <tr>
-                <td colSpan={5} className="text-center py-6 opacity-60">
+                <td colSpan={4} className="text-center py-6 opacity-60">
                   No income entries for {year}.
                 </td>
               </tr>
@@ -212,7 +211,6 @@ export function IncomeClient() {
               return (
                 <tr key={entry.id}>
                   <td className="font-medium">{monthLabel(entry.month.slice(0, 7))}</td>
-                  <td>{entry.user.name ?? entry.user.email}</td>
                   <td className="text-xs opacity-70 max-w-xs truncate">
                     {entry.lines.map((l) => l.sourceTypeName).join(", ")}
                   </td>

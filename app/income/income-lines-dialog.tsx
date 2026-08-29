@@ -58,8 +58,9 @@ export function IncomeLinesDialog({
 
   const typeById = new Map(types.map((t) => [t.id, t]));
   const visibleTypes = types.filter((t) => t.visible);
+  const signFor = (sourceTypeId: string) => typeById.get(sourceTypeId)?.sign ?? "ADD";
 
-  const total = computeTotal(lines);
+  const total = computeTotal(lines, signFor);
 
   const canSave =
     !!month &&
@@ -119,6 +120,7 @@ export function IncomeLinesDialog({
                   <option value="">— Type —</option>
                   {visibleTypes.map((t) => (
                     <option key={t.id} value={t.id}>
+                      {t.sign === "SUBTRACT" ? "− " : "+ "}
                       {t.name}
                     </option>
                   ))}
@@ -182,8 +184,12 @@ export function IncomeLinesDialog({
                   readOnly={readOnly}
                 />
 
-                <span className="font-mono text-sm self-center whitespace-nowrap w-24 text-right">
-                  {eur.format(lineNet(line))}
+                <span
+                  className={`font-mono text-sm self-center whitespace-nowrap w-24 text-right ${
+                    type?.sign === "SUBTRACT" ? "text-error" : ""
+                  }`}
+                >
+                  {eur.format(lineNet(line, signFor(line.sourceTypeId)))}
                 </span>
 
                 {!readOnly && (

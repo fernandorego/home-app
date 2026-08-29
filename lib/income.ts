@@ -8,8 +8,16 @@ export function normalizeMonth(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 }
 
-function lineNet(l: { grossAmount: number; irsPct: number; ssPct: number }): number {
-  return l.grossAmount * (1 - l.irsPct - l.ssPct);
+// `sign` flips a rubric like "Seguro de Saúde" to subtract from the month's
+// total instead of adding to it (see IncomeSourceType.sign).
+function lineNet(l: {
+  grossAmount: number;
+  irsPct: number;
+  ssPct: number;
+  sign: "ADD" | "SUBTRACT";
+}): number {
+  const amount = l.grossAmount * (1 - l.irsPct - l.ssPct);
+  return l.sign === "SUBTRACT" ? -amount : amount;
 }
 
 // Every line's source type must exist, and any type flagged `requiresNote`
@@ -45,10 +53,11 @@ export function serializeIncomeEntry(
       id: l.id,
       sourceTypeId: l.sourceTypeId,
       sourceTypeName: l.sourceType.name,
+      sourceTypeSign: l.sourceType.sign,
       grossAmount,
       irsPct,
       ssPct,
-      net: lineNet({ grossAmount, irsPct, ssPct }),
+      net: lineNet({ grossAmount, irsPct, ssPct, sign: l.sourceType.sign }),
       note: l.note,
     };
   });

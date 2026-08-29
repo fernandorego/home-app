@@ -1,6 +1,7 @@
-import type { TaskDTO } from "@/lib/api-client";
-
-export type Priority = TaskDTO["priority"];
+// Shared priority visualization for both Tasks and Shopping — same scale
+// (LOW/MEDIUM/HIGH/URGENT), same icons/colors, so urgency reads the same
+// way across both lists.
+export type Priority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
 export const PRIORITIES: Priority[] = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 

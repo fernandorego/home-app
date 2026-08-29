@@ -3,11 +3,12 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { apiFetch, type IncomeSourceTypeDTO } from "@/lib/api-client";
+import { apiFetch, type IncomeSourceTypeDTO, type IncomeTypeSign } from "@/lib/api-client";
 import {
   CheckIcon,
   EyeIcon,
   EyeOffIcon,
+  MinusIcon,
   PencilIcon,
   PlusIcon,
   TrashIcon,
@@ -18,6 +19,7 @@ type PatchInput = Partial<{
   name: string;
   irsPct: number;
   ssPct: number;
+  sign: IncomeTypeSign;
   requiresNote: boolean;
   visible: boolean;
 }>;
@@ -39,7 +41,12 @@ export function IncomeTypesAdmin() {
   const invalidate = () => qc.invalidateQueries({ queryKey: ["income-types"] });
 
   const create = useMutation({
-    mutationFn: (input: { name: string; irsPct: number; ssPct: number }) =>
+    mutationFn: (input: {
+      name: string;
+      irsPct: number;
+      ssPct: number;
+      sign: IncomeTypeSign;
+    }) =>
       apiFetch<IncomeSourceTypeDTO>("/api/income-types", {
         method: "POST",
         body: JSON.stringify(input),
@@ -74,6 +81,7 @@ export function IncomeTypesAdmin() {
   const [newName, setNewName] = useState("");
   const [newIrs, setNewIrs] = useState("");
   const [newSs, setNewSs] = useState("");
+  const [newSign, setNewSign] = useState<IncomeTypeSign>("ADD");
   const [editingId, setEditingId] = useState<string | null>(null);
 
   if (isLoading) return <span className="loading loading-spinner loading-md" />;
@@ -92,12 +100,18 @@ export function IncomeTypesAdmin() {
               const name = newName.trim();
               if (!name) return;
               create.mutate(
-                { name, irsPct: percentToFraction(newIrs), ssPct: percentToFraction(newSs) },
+                {
+                  name,
+                  irsPct: percentToFraction(newIrs),
+                  ssPct: percentToFraction(newSs),
+                  sign: newSign,
+                },
                 {
                   onSuccess: () => {
                     setNewName("");
                     setNewIrs("");
                     setNewSs("");
+                    setNewSign("ADD");
                   },
                 },
               );
@@ -112,6 +126,7 @@ export function IncomeTypesAdmin() {
             />
             <PctInput label="IRS" value={newIrs} onChange={setNewIrs} />
             <PctInput label="SS" value={newSs} onChange={setNewSs} />
+            <SignToggle sign={newSign} onChange={setNewSign} />
             <button
               type="submit"
               className="btn btn-primary btn-square"
@@ -167,6 +182,12 @@ export function IncomeTypesAdmin() {
                 disabled={busy}
               />
 
+              <SignToggle
+                sign={t.sign}
+                onChange={(sign) => patch.mutate({ id: t.id, input: { sign } })}
+                disabled={busy}
+              />
+
               <button
                 type="button"
                 className={`btn btn-xs ${t.requiresNote ? "btn-secondary" : "btn-ghost"}`}
@@ -208,6 +229,32 @@ export function IncomeTypesAdmin() {
         ))}
       </ul>
     </div>
+  );
+}
+
+// Toggles whether a rubric adds to or subtracts from the month's income
+// total (e.g. "Vencimento" sums, "Seguro de Saúde" subtracts).
+function SignToggle({
+  sign,
+  onChange,
+  disabled,
+}: {
+  sign: IncomeTypeSign;
+  onChange: (sign: IncomeTypeSign) => void;
+  disabled?: boolean;
+}) {
+  const isSubtract = sign === "SUBTRACT";
+  return (
+    <button
+      type="button"
+      className={`btn btn-xs gap-1 ${isSubtract ? "btn-error" : "btn-success"}`}
+      onClick={() => onChange(isSubtract ? "ADD" : "SUBTRACT")}
+      disabled={disabled}
+      title={isSubtract ? "Subtracts from the total — click to make it add" : "Adds to the total — click to make it subtract"}
+    >
+      {isSubtract ? <MinusIcon className="h-3 w-3" /> : <PlusIcon className="h-3 w-3" />}
+      {isSubtract ? "Subtrai" : "Soma"}
+    </button>
   );
 }
 

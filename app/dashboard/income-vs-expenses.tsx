@@ -6,6 +6,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  LabelList,
   Legend,
   ResponsiveContainer,
   Tooltip,
@@ -15,6 +16,7 @@ import {
 import { apiFetch, type DashboardSettingDTO, type IncomeVsExpensesDTO } from "@/lib/api-client";
 import type { Period } from "@/lib/dashboard-period";
 import { CarIcon } from "@/components/icons";
+import { niceAxisTicks } from "@/lib/chart-scale";
 
 const eur = new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR" });
 const eurCompact = new Intl.NumberFormat("pt-PT", {
@@ -95,6 +97,12 @@ function IncomeVsExpensesChart({
   const hasData = chartData.some((d) => d.income > 0 || d.expense > 0);
   const diff = data?.difference ?? 0;
   const diffTone = diff >= 0 ? "text-success" : "text-error";
+  // Build evenly-spaced, clean whole-number ticks (e.g. 0 / 2 mil / 4 mil €)
+  // instead of relying on recharts' own tick-picking, which can land on
+  // unevenly-spaced or awkward halves like "1,5 mil €" / "4,5 mil €".
+  const { max: yAxisMax, ticks: yAxisTicks } = niceAxisTicks(
+    chartData.reduce((m, d) => Math.max(m, d.income, d.expense), 0),
+  );
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-4 items-stretch">
@@ -127,6 +135,8 @@ function IncomeVsExpensesChart({
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="currentColor" />
                   <YAxis
+                    domain={[0, yAxisMax]}
+                    ticks={yAxisTicks}
                     tick={{ fontSize: 12 }}
                     stroke="currentColor"
                     tickFormatter={(v: number) => eurCompact.format(v)}
@@ -176,8 +186,24 @@ function IncomeVsExpensesChart({
                     }}
                   />
                   <Legend formatter={(v) => (v === "income" ? "Income" : "Expenses")} />
-                  <Bar dataKey="income" name="income" fill={INCOME_COLOR} radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="expense" name="expense" fill={EXPENSE_COLOR} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="income" name="income" fill={INCOME_COLOR} radius={[4, 4, 0, 0]}>
+                    <LabelList
+                      dataKey="income"
+                      position="top"
+                      fill="#000"
+                      fontSize={11}
+                      formatter={(v: React.ReactNode) => eurCompact.format(Number(v ?? 0))}
+                    />
+                  </Bar>
+                  <Bar dataKey="expense" name="expense" fill={EXPENSE_COLOR} radius={[4, 4, 0, 0]}>
+                    <LabelList
+                      dataKey="expense"
+                      position="top"
+                      fill="#000"
+                      fontSize={11}
+                      formatter={(v: React.ReactNode) => eurCompact.format(Number(v ?? 0))}
+                    />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -235,6 +261,9 @@ function KmVsCarModal({
   const hasData = chartData.some((d) => d.incomeAmount > 0 || d.expenseAmount > 0);
   const totalIncome = chartData.reduce((s, d) => s + d.incomeAmount, 0);
   const totalExpense = chartData.reduce((s, d) => s + d.expenseAmount, 0);
+  const { max: yAxisMax, ticks: yAxisTicks } = niceAxisTicks(
+    chartData.reduce((m, d) => Math.max(m, d.incomeAmount, d.expenseAmount), 0),
+  );
 
   return (
     <dialog ref={ref} className="modal" onClose={onClose}>
@@ -265,6 +294,8 @@ function KmVsCarModal({
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="currentColor" />
                     <YAxis
+                      domain={[0, yAxisMax]}
+                      ticks={yAxisTicks}
                       tick={{ fontSize: 12 }}
                       stroke="currentColor"
                       tickFormatter={(v: number) => eurCompact.format(v)}

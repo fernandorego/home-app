@@ -2,13 +2,13 @@
 
 import type { RefObject } from "react";
 import { CheckIcon, PlusIcon, XIcon } from "@/components/icons";
-import type { UserDTO } from "@/lib/api-client";
+import type { ListCategoryDTO, UserDTO } from "@/lib/api-client";
 import {
   PRIORITIES,
   PRIORITY_LABEL,
   PRIORITY_TEXT_COLOR,
   PriorityIcon,
-} from "./priority";
+} from "@/components/priority";
 import { RECURRENCES, RECURRENCE_LABEL, type FormState } from "./types";
 
 type Props = {
@@ -19,6 +19,7 @@ type Props = {
   busy?: boolean;
   isEdit?: boolean;
   users: UserDTO[];
+  categories: ListCategoryDTO[];
   firstInputRef?: RefObject<HTMLInputElement | null>;
 };
 
@@ -30,6 +31,7 @@ export function TaskFormRow({
   busy,
   isEdit,
   users,
+  categories,
   firstInputRef,
 }: Props) {
   const set = <K extends keyof FormState>(key: K, v: FormState[K]) =>
@@ -39,6 +41,8 @@ export function TaskFormRow({
 
   return (
     <tr className={isEdit ? "bg-warning/10" : "bg-base-200"}>
+      {/* Bulk-selection column has nothing to select for a create/edit row. */}
+      <td />
       <td>
         <input
           ref={firstInputRef}
@@ -48,6 +52,27 @@ export function TaskFormRow({
           value={value.description}
           onChange={(e) => set("description", e.target.value)}
         />
+        <input
+          type="text"
+          className="input input-xs input-bordered w-full min-w-32 mt-1"
+          placeholder="Notes (optional)"
+          value={value.notes}
+          onChange={(e) => set("notes", e.target.value)}
+        />
+      </td>
+      <td>
+        <select
+          className="select select-sm select-bordered"
+          value={value.categoryId}
+          onChange={(e) => set("categoryId", e.target.value)}
+        >
+          <option value="">No category</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
       </td>
       <td>
         <input

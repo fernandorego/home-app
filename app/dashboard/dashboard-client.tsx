@@ -26,6 +26,7 @@ import { IncomeVsExpensesSection } from "./income-vs-expenses";
 import { NEUTRAL_CATEGORY_COLOR, buildCategoryColorMap } from "./category-colors";
 import { ExpenseDetailModal, type DetailRow } from "./expense-detail-modal";
 import type { Period } from "@/lib/dashboard-period";
+import { niceAxisTicks } from "@/lib/chart-scale";
 
 function CoverflexLogo({ className = "h-4 w-4" }: { className?: string }) {
   return (
@@ -440,6 +441,21 @@ function CategoryLineChart({
 
   const idToName = new Map(colored.map((c) => [c.id, c.name]));
 
+  // Build evenly-spaced, clean whole-number ticks (e.g. 0 / 2 mil / 4 mil €)
+  // instead of relying on recharts' own tick-picking, which can land on
+  // unevenly-spaced or awkward halves like "1,5 mil €" / "4,5 mil €".
+  // Considers both the plotted values and any budget reference lines so
+  // those aren't clipped off the chart.
+  const { max: yAxisMax, ticks: yAxisTicks } = niceAxisTicks(
+    Math.max(
+      data.reduce(
+        (m, point) => Math.max(m, ...colored.map((c) => Number(point[c.id]) || 0)),
+        0,
+      ),
+      ...colored.map((c) => c.monthlyBudget ?? 0),
+    ),
+  );
+
   return (
     <div className="space-y-2">
       <div className="h-44">
@@ -447,6 +463,8 @@ function CategoryLineChart({
           <LineChart data={data} margin={{ top: 8, right: 8, left: -10, bottom: 0 }}>
             <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="currentColor" />
             <YAxis
+              domain={[0, yAxisMax]}
+              ticks={yAxisTicks}
               tick={{ fontSize: 12 }}
               stroke="currentColor"
               tickFormatter={(v: number) => eurCompact.format(v)}

@@ -28,6 +28,7 @@ export async function POST(req: Request) {
         name: data.name,
         irsPct: new Prisma.Decimal(data.irsPct),
         ssPct: new Prisma.Decimal(data.ssPct),
+        sign: data.sign,
         requiresNote: data.requiresNote,
         visible: data.visible,
       },

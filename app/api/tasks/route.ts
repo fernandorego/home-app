@@ -32,6 +32,11 @@ export async function GET(req: Request) {
   const where: Prisma.TaskWhereInput = {
     AND: [
       filter.priority ? { priority: filter.priority } : {},
+      filter.categoryId
+        ? filter.categoryId === "__none__"
+          ? { categoryId: null }
+          : { categoryId: filter.categoryId }
+        : {},
       filter.completed !== undefined ? { completed: filter.completed } : {},
       filter.assigneeId
         ? filter.assigneeId === "unassigned"
@@ -45,6 +50,7 @@ export async function GET(req: Request) {
   const include = {
     user: { select: { id: true, name: true, email: true, image: true } },
     assignee: { select: { id: true, name: true, email: true, image: true } },
+    category: true,
   } as const;
 
   // Priority has no natural DB ordering — fetch all matching rows, sort in
@@ -92,16 +98,26 @@ export async function POST(req: Request) {
       });
       if (!assignee) return badRequest("Assignee does not exist");
     }
+    if (data.categoryId) {
+      const category = await prisma.listCategory.findUnique({
+        where: { id: data.categoryId },
+      });
+      if (!category || category.kind !== "TASK") {
+        return badRequest("Category does not exist");
+      }
+    }
 
     const created = await prisma.task.create({
       data: {
         description: data.description,
+        notes: data.notes?.trim() || null,
         priority: data.priority,
         recurrence: data.recurrence ?? null,
         deadline: data.deadline ?? null,
         completed: data.completed,
         completedAt: data.completed ? new Date() : null,
         assigneeId: data.assigneeId ?? null,
+        categoryId: data.categoryId ?? null,
         userId: session.user.id,
       },
       include: {
@@ -109,6 +125,7 @@ export async function POST(req: Request) {
         assignee: {
           select: { id: true, name: true, email: true, image: true },
         },
+        category: true,
       },
     });
 

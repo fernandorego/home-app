@@ -70,10 +70,15 @@ export const dashboardSettingUpdateSchema = z.object({
   expensesIncomePct: pctSchema,
 });
 
+// Whether a rubric adds to or subtracts from the month's income total (e.g.
+// "Vencimento" sums, "Seguro de Saúde" subtracts).
+export const incomeTypeSignSchema = z.enum(["ADD", "SUBTRACT"]);
+
 export const incomeSourceTypeInputSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(80),
   irsPct: pctSchema.default(0),
   ssPct: pctSchema.default(0),
+  sign: incomeTypeSignSchema.default("ADD"),
   requiresNote: z.boolean().default(false),
   visible: z.boolean().default(true),
 });
@@ -81,6 +86,7 @@ export const incomeSourceTypeInputSchema = z.object({
 export const incomeSourceTypeUpdateSchema = incomeSourceTypeInputSchema.partial().extend({
   irsPct: pctSchema.optional(),
   ssPct: pctSchema.optional(),
+  sign: incomeTypeSignSchema.optional(),
   requiresNote: z.boolean().optional(),
   visible: z.boolean().optional(),
 });
@@ -109,9 +115,10 @@ export const incomeUpdateSchema = z.object({
   lines: z.array(incomeLineSchema).min(1, "Add at least one income line").optional(),
 });
 
+// No `userId` field — income is always scoped to the signed-in user
+// server-side (see /api/income's GET), never selectable by the client.
 export const incomeFilterSchema = z.object({
   year: z.coerce.number().int().optional(),
-  userId: z.string().optional(),
 });
 
 // Query params for multi-select filters arrive as a single comma-separated
@@ -172,13 +179,35 @@ export const TASK_RECURRENCES = ["DAILY", "WEEKLY", "MONTHLY"] as const;
 export const taskRecurrenceSchema = z.enum(TASK_RECURRENCES);
 export type TaskRecurrence = z.infer<typeof taskRecurrenceSchema>;
 
+export const LIST_CATEGORY_KINDS = ["TASK", "SHOPPING"] as const;
+export const listCategoryKindSchema = z.enum(LIST_CATEGORY_KINDS);
+export type ListCategoryKind = z.infer<typeof listCategoryKindSchema>;
+
+export const listCategoryInputSchema = z.object({
+  kind: listCategoryKindSchema,
+  name: z.string().trim().min(1, "Name is required").max(80),
+  visible: z.boolean().default(true),
+});
+
+// `kind` isn't updatable — a category doesn't move between Tasks and
+// Shopping, it gets recreated under the other kind instead.
+export const listCategoryUpdateSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(80).optional(),
+  visible: z.boolean().optional(),
+});
+
+export type ListCategoryInput = z.infer<typeof listCategoryInputSchema>;
+export type ListCategoryUpdate = z.infer<typeof listCategoryUpdateSchema>;
+
 export const taskInputSchema = z.object({
   description: z.string().trim().min(1, "Description is required").max(500),
+  notes: z.string().trim().max(2000).optional().nullable(),
   priority: taskPrioritySchema.default("MEDIUM"),
   recurrence: taskRecurrenceSchema.optional().nullable(),
   deadline: z.coerce.date().optional().nullable(),
   completed: z.boolean().default(false),
   assigneeId: z.string().min(1).optional().nullable(),
+  categoryId: z.string().min(1).optional().nullable(),
 });
 
 // See the comment on expenseUpdateSchema — without this, saving an edit
@@ -191,6 +220,7 @@ export const taskUpdateSchema = taskInputSchema.partial().extend({
 
 export const taskFilterSchema = z.object({
   priority: taskPrioritySchema.optional(),
+  categoryId: z.string().optional(),
   completed: z
     .enum(["true", "false"])
     .optional()
@@ -210,18 +240,30 @@ export type TaskInput = z.infer<typeof taskInputSchema>;
 export type TaskUpdate = z.infer<typeof taskUpdateSchema>;
 export type TaskFilter = z.infer<typeof taskFilterSchema>;
 
+// `action: "delete"` is restricted to the task's creator server-side;
+// `"complete"` is allowed for the creator or the assignee.
+export const taskBulkActionSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1).max(200),
+  action: z.enum(["complete", "delete"]),
+});
+export type TaskBulkAction = z.infer<typeof taskBulkActionSchema>;
+
 export const shoppingInputSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   quantity: z.string().trim().max(80).optional().nullable(),
+  priority: taskPrioritySchema.default("MEDIUM"),
   recurrence: taskRecurrenceSchema.optional().nullable(),
   dueDate: z.coerce.date().optional().nullable(),
   bought: z.boolean().default(false),
+  categoryId: z.string().min(1).optional().nullable(),
 });
 
 // See the comment on expenseUpdateSchema — without this, saving an edit
-// (which omits `bought`) silently un-marks the item as bought.
+// (which omits `bought`) silently un-marks the item as bought, and
+// (which omits `priority`) silently resets it to MEDIUM.
 export const shoppingUpdateSchema = shoppingInputSchema.partial().extend({
   bought: z.boolean().optional(),
+  priority: taskPrioritySchema.optional(),
 });
 
 export const shoppingFilterSchema = z.object({
@@ -230,8 +272,10 @@ export const shoppingFilterSchema = z.object({
     .optional()
     .transform((v) => (v == null ? undefined : v === "true")),
   recurrence: taskRecurrenceSchema.optional(),
+  priority: taskPrioritySchema.optional(),
+  categoryId: z.string().optional(),
   q: z.string().optional(),
-  sort: z.enum(["dueDate", "name", "createdAt"]).optional().default("dueDate"),
+  sort: z.enum(["dueDate", "name", "createdAt", "priority"]).optional().default("dueDate"),
   order: z.enum(["asc", "desc"]).optional().default("asc"),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
@@ -240,3 +284,8 @@ export const shoppingFilterSchema = z.object({
 export type ShoppingInput = z.infer<typeof shoppingInputSchema>;
 export type ShoppingUpdate = z.infer<typeof shoppingUpdateSchema>;
 export type ShoppingFilter = z.infer<typeof shoppingFilterSchema>;
+
+export const shoppingBulkCreateSchema = z.object({
+  names: z.array(z.string().trim().min(1)).min(1).max(100),
+});
+export type ShoppingBulkCreate = z.infer<typeof shoppingBulkCreateSchema>;

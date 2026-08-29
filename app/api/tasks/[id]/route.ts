@@ -13,6 +13,12 @@ import { nextDeadline } from "@/lib/recurrence";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+const taskInclude = {
+  user: { select: { id: true, name: true, email: true, image: true } },
+  assignee: { select: { id: true, name: true, email: true, image: true } },
+  category: true,
+} as const;
+
 export async function PATCH(req: Request, { params }: Ctx) {
   const session = await requireSession();
   if (isErrorResponse(session)) return session;
@@ -25,13 +31,24 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
     const existing = await prisma.task.findUnique({ where: { id } });
     if (!existing) return notFound("Task not found");
-    if (existing.userId !== session.user.id) {
-      return forbidden("Only the creator can edit this task");
+    // The creator or the assignee can edit/complete — the assignee is the
+    // one actually doing the task, so they need to be able to check it off
+    // (or tweak details) even though they didn't create it.
+    if (existing.userId !== session.user.id && existing.assigneeId !== session.user.id) {
+      return forbidden("Only the creator or assignee can edit this task");
     }
 
     if (data.assigneeId) {
       const assignee = await prisma.user.findUnique({ where: { id: data.assigneeId } });
       if (!assignee) return badRequest("Assignee does not exist");
+    }
+    if (data.categoryId) {
+      const category = await prisma.listCategory.findUnique({
+        where: { id: data.categoryId },
+      });
+      if (!category || category.kind !== "TASK") {
+        return badRequest("Category does not exist");
+      }
     }
 
     // Recurrence behavior: if the caller is marking this as completed, and the
@@ -52,6 +69,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
       where: { id },
       data: {
         description: data.description ?? undefined,
+        notes: data.notes === undefined ? undefined : data.notes?.trim() || null,
         priority: data.priority ?? undefined,
         recurrence: data.recurrence === undefined ? undefined : data.recurrence,
         deadline: isRolling
@@ -68,11 +86,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
               : null
             : undefined,
         assigneeId: data.assigneeId === undefined ? undefined : data.assigneeId,
+        categoryId: data.categoryId === undefined ? undefined : data.categoryId,
       },
-      include: {
-        user: { select: { id: true, name: true, email: true, image: true } },
-        assignee: { select: { id: true, name: true, email: true, image: true } },
-      },
+      include: taskInclude,
     });
 
     return NextResponse.json(updated);

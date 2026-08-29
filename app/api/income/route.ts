@@ -29,6 +29,10 @@ export async function GET(req: Request) {
   const entries = await prisma.incomeEntry.findMany({
     where: {
       AND: [
+        // Income is private — always scoped to the signed-in user,
+        // regardless of any `userId` query param (unlike Expenses, income
+        // entries are never shared/joint).
+        { userId: session.user.id },
         filter.year
           ? {
               month: {
@@ -37,7 +41,6 @@ export async function GET(req: Request) {
               },
             }
           : {},
-        filter.userId ? { userId: filter.userId } : {},
       ],
     },
     orderBy: [{ month: "desc" }, { userId: "asc" }],

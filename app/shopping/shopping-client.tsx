@@ -1,20 +1,21 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useSession } from "next-auth/react";
 import toast from "react-hot-toast";
 import {
   apiFetch,
+  type ListCategoryDTO,
   type Paginated,
   type ShoppingItemDTO,
 } from "@/lib/api-client";
-import { PencilIcon, TrashIcon } from "@/components/icons";
+import { PencilIcon, PlusIcon, TrashIcon } from "@/components/icons";
+import { PRIORITIES, PRIORITY_LABEL, PriorityBadge } from "@/components/priority";
 import { ShoppingFormRow } from "./shopping-form-row";
 import { Pagination } from "@/components/pagination";
 import {
@@ -35,8 +36,10 @@ function formStateToInput(s: FormState) {
   return {
     name: s.name.trim(),
     quantity: s.quantity.trim() ? s.quantity.trim() : null,
+    priority: s.priority,
     recurrence: s.recurrence || null,
     dueDate: s.dueDate ? new Date(`${s.dueDate}T12:00:00`).toISOString() : null,
+    categoryId: s.categoryId || null,
   };
 }
 
@@ -44,13 +47,14 @@ function itemToFormState(i: ShoppingItemDTO): FormState {
   return {
     name: i.name,
     quantity: i.quantity ?? "",
+    priority: i.priority,
     recurrence: i.recurrence ?? "",
     dueDate: i.dueDate ? toIsoDate(new Date(i.dueDate)) : "",
+    categoryId: i.categoryId ?? "",
   };
 }
 
 export function ShoppingClient() {
-  const { data: session } = useSession();
   const qc = useQueryClient();
 
   const [filters, setFilters] = useState<Filters>({ bought: "false" });
@@ -66,6 +70,8 @@ export function ShoppingClient() {
     sp.set("pageSize", String(PAGE_SIZE));
     if (filters.bought) sp.set("bought", filters.bought);
     if (filters.recurrence) sp.set("recurrence", filters.recurrence);
+    if (filters.priority) sp.set("priority", filters.priority);
+    if (filters.categoryId) sp.set("categoryId", filters.categoryId);
     if (filters.q) sp.set("q", filters.q);
     return sp.toString();
   }, [filters, sort, order, page]);
@@ -75,6 +81,10 @@ export function ShoppingClient() {
     queryFn: () =>
       apiFetch<Paginated<ShoppingItemDTO>>(`/api/shopping?${queryParams}`),
     placeholderData: keepPreviousData,
+  });
+  const categoriesQ = useQuery({
+    queryKey: ["list-categories", "SHOPPING"],
+    queryFn: () => apiFetch<ListCategoryDTO[]>("/api/list-categories?kind=SHOPPING"),
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["shopping"] });
@@ -138,8 +148,34 @@ export function ShoppingClient() {
     onError: (err: Error) => toast.error(err.message),
   });
 
+  const bulkCreateM = useMutation({
+    mutationFn: (names: string[]) =>
+      apiFetch<ShoppingItemDTO[]>("/api/shopping/bulk-create", {
+        method: "POST",
+        body: JSON.stringify({ names }),
+      }),
+    onSuccess: (created) => {
+      invalidate();
+      setPage(1);
+      toast.success(`Added ${created.length} item${created.length === 1 ? "" : "s"}`);
+      setBulkAddOpen(false);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const clearBoughtM = useMutation({
+    mutationFn: () =>
+      apiFetch<{ deleted: number }>("/api/shopping/clear-bought", { method: "POST" }),
+    onSuccess: ({ deleted }) => {
+      invalidate();
+      toast.success(`Cleared ${deleted} bought item${deleted === 1 ? "" : "s"}`);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<FormState | null>(null);
+  const [bulkAddOpen, setBulkAddOpen] = useState(false);
 
   const onHeaderClick = (key: SortKey) => {
     if (sort === key) {
@@ -158,14 +194,36 @@ export function ShoppingClient() {
 
   const items = itemsQ.data?.data ?? [];
   const total = itemsQ.data?.total ?? 0;
-  const userId = session?.user?.id;
+  const categories = categoriesQ.data ?? [];
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   return (
     <div className="space-y-4">
-      <FiltersBar filters={filters} onChange={handleFiltersChange} />
+      <FiltersBar filters={filters} onChange={handleFiltersChange} categories={categories} />
+
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          className="btn btn-sm btn-ghost gap-1"
+          onClick={() => setBulkAddOpen(true)}
+        >
+          <PlusIcon className="h-4 w-4" /> Add multiple
+        </button>
+        <button
+          type="button"
+          className="btn btn-sm btn-ghost gap-1"
+          disabled={clearBoughtM.isPending}
+          onClick={() => {
+            if (confirm("Remove every bought item from the list?")) {
+              clearBoughtM.mutate();
+            }
+          }}
+        >
+          <TrashIcon className="h-4 w-4" /> Clear bought
+        </button>
+      </div>
 
       <div className="overflow-x-auto rounded-box border border-base-300">
         <table className="table table-zebra">
@@ -178,7 +236,15 @@ export function ShoppingClient() {
                 order={order}
                 onClick={onHeaderClick}
               />
+              <th>Category</th>
               <th>Quantity</th>
+              <Th
+                label="Priority"
+                sortKey="priority"
+                sort={sort}
+                order={order}
+                onClick={onHeaderClick}
+              />
               <Th
                 label="Due"
                 sortKey="dueDate"
@@ -196,12 +262,13 @@ export function ShoppingClient() {
               onChange={setCreateForm}
               onSubmit={() => createM.mutate(createForm)}
               busy={createM.isPending}
+              categories={categories}
               firstInputRef={firstInputRef}
             />
 
             {itemsQ.isLoading && (
               <tr>
-                <td colSpan={5} className="text-center py-6">
+                <td colSpan={7} className="text-center py-6">
                   <span className="loading loading-spinner loading-md" />
                 </td>
               </tr>
@@ -209,14 +276,13 @@ export function ShoppingClient() {
 
             {!itemsQ.isLoading && items.length === 0 && (
               <tr>
-                <td colSpan={5} className="text-center py-6 opacity-60">
+                <td colSpan={7} className="text-center py-6 opacity-60">
                   Nothing on the list.
                 </td>
               </tr>
             )}
 
             {items.map((item) => {
-              const isOwner = userId === item.userId;
               const isEditing = editingId === item.id && editForm;
               if (isEditing && editForm) {
                 return (
@@ -233,6 +299,7 @@ export function ShoppingClient() {
                       setEditForm(null);
                     }}
                     busy={updateM.isPending}
+                    categories={categories}
                   />
                 );
               }
@@ -249,7 +316,7 @@ export function ShoppingClient() {
                         type="checkbox"
                         className="checkbox checkbox-sm"
                         checked={item.bought}
-                        disabled={!isOwner || toggleBoughtM.isPending}
+                        disabled={toggleBoughtM.isPending}
                         onChange={(e) =>
                           toggleBoughtM.mutate({
                             id: item.id,
@@ -263,7 +330,17 @@ export function ShoppingClient() {
                       </span>
                     </label>
                   </td>
+                  <td>
+                    {item.category ? (
+                      <span className="badge badge-ghost badge-sm">{item.category.name}</span>
+                    ) : (
+                      <span className="opacity-50 text-sm">—</span>
+                    )}
+                  </td>
                   <td className="text-sm opacity-80">{item.quantity ?? "—"}</td>
+                  <td>
+                    <PriorityBadge priority={item.priority} />
+                  </td>
                   <td className={isOverdue ? "text-error font-medium" : ""}>
                     {dueDate ? toIsoDate(dueDate) : "—"}
                   </td>
@@ -281,7 +358,6 @@ export function ShoppingClient() {
                       <button
                         type="button"
                         className="btn btn-ghost btn-sm btn-square join-item"
-                        disabled={!isOwner}
                         onClick={() => {
                           setEditingId(item.id);
                           setEditForm(itemToFormState(item));
@@ -294,7 +370,7 @@ export function ShoppingClient() {
                       <button
                         type="button"
                         className="btn btn-ghost btn-sm btn-square text-error join-item"
-                        disabled={!isOwner || deleteM.isPending}
+                        disabled={deleteM.isPending}
                         onClick={() => {
                           if (confirm("Remove this item?")) {
                             deleteM.mutate(item.id);
@@ -320,7 +396,77 @@ export function ShoppingClient() {
         pageSize={PAGE_SIZE}
         onChange={setPage}
       />
+
+      <BulkAddDialog
+        open={bulkAddOpen}
+        busy={bulkCreateM.isPending}
+        onClose={() => setBulkAddOpen(false)}
+        onSubmit={(names) => bulkCreateM.mutate(names)}
+      />
     </div>
+  );
+}
+
+function BulkAddDialog({
+  open,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (names: string[]) => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [text, setText] = useState("");
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (open && !el.open) el.showModal();
+    if (!open && el.open) el.close();
+  }, [open]);
+
+  const names = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  return (
+    <dialog ref={ref} className="modal" onClose={onClose}>
+      <div className="modal-box">
+        <h3 className="font-bold text-lg mb-1">Add multiple items</h3>
+        <p className="text-sm opacity-60 mb-3">One item per line.</p>
+        <textarea
+          className="textarea textarea-bordered w-full h-40"
+          placeholder={"Milk\nEggs\nBread"}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          autoFocus
+        />
+        <div className="modal-action">
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={names.length === 0 || busy}
+            onClick={() => onSubmit(names)}
+          >
+            {busy ? (
+              <span className="loading loading-spinner loading-xs" />
+            ) : (
+              `Add ${names.length} item${names.length === 1 ? "" : "s"}`
+            )}
+          </button>
+        </div>
+      </div>
+      <form method="dialog" className="modal-backdrop">
+        <button>close</button>
+      </form>
+    </dialog>
   );
 }
 
@@ -357,9 +503,11 @@ function Th({
 function FiltersBar({
   filters,
   onChange,
+  categories,
 }: {
   filters: Filters;
   onChange: (f: Filters) => void;
+  categories: ListCategoryDTO[];
 }) {
   const set = <K extends keyof Filters>(key: K, v: Filters[K]) =>
     onChange({ ...filters, [key]: v });
@@ -367,7 +515,7 @@ function FiltersBar({
   return (
     <div className="card bg-base-200">
       <div className="card-body py-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-2">
           <input
             type="text"
             className="input input-sm input-bordered"
@@ -375,6 +523,36 @@ function FiltersBar({
             value={filters.q ?? ""}
             onChange={(e) => set("q", e.target.value || undefined)}
           />
+          <select
+            className="select select-sm select-bordered"
+            value={filters.categoryId ?? ""}
+            onChange={(e) => set("categoryId", e.target.value || undefined)}
+          >
+            <option value="">All categories</option>
+            <option value="__none__">No category</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <select
+            className="select select-sm select-bordered"
+            value={filters.priority ?? ""}
+            onChange={(e) =>
+              set(
+                "priority",
+                (e.target.value || undefined) as Filters["priority"],
+              )
+            }
+          >
+            <option value="">All priorities</option>
+            {PRIORITIES.map((p) => (
+              <option key={p} value={p}>
+                {PRIORITY_LABEL[p]}
+              </option>
+            ))}
+          </select>
           <select
             className="select select-sm select-bordered"
             value={filters.recurrence ?? ""}
@@ -409,7 +587,7 @@ function FiltersBar({
             <option value="true">Bought only</option>
           </select>
         </div>
-        {(filters.bought || filters.recurrence || filters.q) && (
+        {(filters.bought || filters.recurrence || filters.priority || filters.categoryId || filters.q) && (
           <div className="pt-2">
             <button
               type="button"

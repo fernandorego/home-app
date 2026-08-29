@@ -5,6 +5,7 @@ export type Order = "asc" | "desc";
 
 export type Filters = {
   priority?: TaskDTO["priority"];
+  categoryId?: string; // "__none__" or a real category id
   completed?: "true" | "false";
   assigneeId?: string; // "unassigned" or a real user id
   q?: string;
@@ -20,18 +21,22 @@ export const RECURRENCE_LABEL: Record<Recurrence, string> = {
 
 export type FormState = {
   description: string;
+  notes: string;
   priority: TaskDTO["priority"];
   recurrence: "" | Recurrence;
   deadline: string; // yyyy-mm-dd or empty
   assigneeId: string; // user id or "" for unassigned
+  categoryId: string; // category id or "" for none
 };
 
 export const emptyForm = (): FormState => ({
   description: "",
+  notes: "",
   priority: "MEDIUM",
   recurrence: "",
   deadline: "",
   assigneeId: "",
+  categoryId: "",
 });
 
 export function toIsoDate(d: Date): string {

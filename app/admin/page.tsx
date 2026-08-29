@@ -2,6 +2,7 @@ import { CategoriesAdmin } from "./categories-admin";
 import { ReimbursersAdmin } from "./reimbursers-admin";
 import { IncomeTypesAdmin } from "./income-types-admin";
 import { DashboardSettingsAdmin } from "./dashboard-settings-admin";
+import { ListCategoriesAdmin } from "./list-categories-admin";
 
 export default function AdminPage() {
   return (
@@ -29,6 +30,11 @@ export default function AdminPage() {
       <section>
         <h2 className="text-lg font-semibold mb-3">Dashboard settings</h2>
         <DashboardSettingsAdmin />
+      </section>
+
+      <section>
+        <h2 className="text-lg font-semibold mb-3">To-Do &amp; Shopping categories</h2>
+        <ListCategoriesAdmin />
       </section>
     </div>
   );

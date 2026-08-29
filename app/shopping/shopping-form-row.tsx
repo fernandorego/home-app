@@ -2,6 +2,13 @@
 
 import type { RefObject } from "react";
 import { CheckIcon, PlusIcon, XIcon } from "@/components/icons";
+import type { ListCategoryDTO } from "@/lib/api-client";
+import {
+  PRIORITIES,
+  PRIORITY_LABEL,
+  PRIORITY_TEXT_COLOR,
+  PriorityIcon,
+} from "@/components/priority";
 import { RECURRENCES, RECURRENCE_LABEL, type FormState } from "./types";
 
 type Props = {
@@ -11,6 +18,7 @@ type Props = {
   onCancel?: () => void;
   busy?: boolean;
   isEdit?: boolean;
+  categories: ListCategoryDTO[];
   firstInputRef?: RefObject<HTMLInputElement | null>;
 };
 
@@ -21,6 +29,7 @@ export function ShoppingFormRow({
   onCancel,
   busy,
   isEdit,
+  categories,
   firstInputRef,
 }: Props) {
   const set = <K extends keyof FormState>(key: K, v: FormState[K]) =>
@@ -30,6 +39,8 @@ export function ShoppingFormRow({
 
   return (
     <tr className={isEdit ? "bg-warning/10" : "bg-base-200"}>
+      {/* Bulk-selection column has nothing to select for a create/edit row. */}
+      <td />
       <td>
         <input
           ref={firstInputRef}
@@ -41,6 +52,20 @@ export function ShoppingFormRow({
         />
       </td>
       <td>
+        <select
+          className="select select-sm select-bordered"
+          value={value.categoryId}
+          onChange={(e) => set("categoryId", e.target.value)}
+        >
+          <option value="">No category</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td>
         <input
           type="text"
           className="input input-sm input-bordered w-24"
@@ -48,6 +73,25 @@ export function ShoppingFormRow({
           value={value.quantity}
           onChange={(e) => set("quantity", e.target.value)}
         />
+      </td>
+      <td>
+        <div className="flex items-center gap-1">
+          <PriorityIcon
+            priority={value.priority}
+            className={`h-4 w-4 shrink-0 ${PRIORITY_TEXT_COLOR[value.priority]}`}
+          />
+          <select
+            className="select select-sm select-bordered"
+            value={value.priority}
+            onChange={(e) => set("priority", e.target.value as FormState["priority"])}
+          >
+            {PRIORITIES.map((p) => (
+              <option key={p} value={p}>
+                {PRIORITY_LABEL[p]}
+              </option>
+            ))}
+          </select>
+        </div>
       </td>
       <td>
         <input

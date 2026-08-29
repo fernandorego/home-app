@@ -44,11 +44,14 @@ export type ReimburserDTO = {
   updatedAt: string;
 };
 
+export type IncomeTypeSign = "ADD" | "SUBTRACT";
+
 export type IncomeSourceTypeDTO = {
   id: string;
   name: string;
   irsPct: string;
   ssPct: string;
+  sign: IncomeTypeSign;
   requiresNote: boolean;
   visible: boolean;
   createdAt: string;
@@ -59,6 +62,7 @@ export type IncomeLineDTO = {
   id: string;
   sourceTypeId: string;
   sourceTypeName: string;
+  sourceTypeSign: IncomeTypeSign;
   grossAmount: number;
   irsPct: number;
   ssPct: number;
@@ -84,14 +88,26 @@ export type UserDTO = {
   image: string | null;
 };
 
+export type ListCategoryDTO = {
+  id: string;
+  kind: "TASK" | "SHOPPING";
+  name: string;
+  visible: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ShoppingItemDTO = {
   id: string;
   name: string;
   quantity: string | null;
+  priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
   recurrence: "DAILY" | "WEEKLY" | "MONTHLY" | null;
   dueDate: string | null;
   bought: boolean;
   boughtAt: string | null;
+  categoryId: string | null;
+  category: ListCategoryDTO | null;
   userId: string;
   user: UserDTO;
   createdAt: string;
@@ -101,11 +117,14 @@ export type ShoppingItemDTO = {
 export type TaskDTO = {
   id: string;
   description: string;
+  notes: string | null;
   priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
   recurrence: "DAILY" | "WEEKLY" | "MONTHLY" | null;
   deadline: string | null;
   completed: boolean;
   completedAt: string | null;
+  categoryId: string | null;
+  category: ListCategoryDTO | null;
   userId: string;
   user: UserDTO;
   assigneeId: string | null;

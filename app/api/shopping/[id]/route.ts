@@ -3,8 +3,8 @@ import { prisma } from "@/lib/prisma";
 import {
   requireSession,
   isErrorResponse,
+  badRequest,
   notFound,
-  forbidden,
   handleZod,
 } from "@/lib/api";
 import { shoppingUpdateSchema, type TaskRecurrence } from "@/lib/validators";
@@ -12,6 +12,14 @@ import { nextDeadline } from "@/lib/recurrence";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+const shoppingInclude = {
+  user: { select: { id: true, name: true, email: true, image: true } },
+  category: true,
+} as const;
+
+// Shopping is a shared household list — any signed-in user can edit,
+// complete, or delete any item, not just whoever originally added it (see
+// `userId` on the model, which only records the original adder).
 export async function PATCH(req: Request, { params }: Ctx) {
   const session = await requireSession();
   if (isErrorResponse(session)) return session;
@@ -24,8 +32,14 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
     const existing = await prisma.shoppingItem.findUnique({ where: { id } });
     if (!existing) return notFound("Shopping item not found");
-    if (existing.userId !== session.user.id) {
-      return forbidden("Only the creator can edit this item");
+
+    if (data.categoryId) {
+      const category = await prisma.listCategory.findUnique({
+        where: { id: data.categoryId },
+      });
+      if (!category || category.kind !== "SHOPPING") {
+        return badRequest("Category does not exist");
+      }
     }
 
     // Recurrence behavior: marking a recurring item with a due date as bought
@@ -46,6 +60,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
       data: {
         name: data.name ?? undefined,
         quantity: data.quantity === undefined ? undefined : data.quantity,
+        priority: data.priority ?? undefined,
         recurrence: data.recurrence === undefined ? undefined : data.recurrence,
         dueDate: isRolling
           ? nextDeadline(existing.dueDate!, effectiveRecurrence!)
@@ -60,8 +75,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
               ? new Date()
               : null
             : undefined,
+        categoryId: data.categoryId === undefined ? undefined : data.categoryId,
       },
-      include: { user: { select: { id: true, name: true, email: true, image: true } } },
+      include: shoppingInclude,
     });
 
     return NextResponse.json(updated);
@@ -80,9 +96,6 @@ export async function DELETE(_req: Request, { params }: Ctx) {
 
   const existing = await prisma.shoppingItem.findUnique({ where: { id } });
   if (!existing) return notFound("Shopping item not found");
-  if (existing.userId !== session.user.id) {
-    return forbidden("Only the creator can delete this item");
-  }
 
   await prisma.shoppingItem.delete({ where: { id } });
   return new NextResponse(null, { status: 204 });

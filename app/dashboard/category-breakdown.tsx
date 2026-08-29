@@ -24,6 +24,7 @@ import {
 } from "./category-colors";
 import { ExpenseDetailModal, type DetailRow } from "./expense-detail-modal";
 import type { Period } from "@/lib/dashboard-period";
+import { niceAxisMax } from "@/lib/chart-scale";
 
 const eur = new Intl.NumberFormat("pt-PT", {
   style: "currency",
@@ -66,16 +67,6 @@ type BreakdownResponse = {
 // ceiling, though, the axis scales down to fit the actual data (see
 // `niceAxisMax`) instead of always spanning the full 0–4000€ range.
 const X_AXIS_MAX = 4000;
-
-// Rounds a value up to a "nice" round number for the axis's top tick
-// (1/2/5/10 × a power of ten — e.g. 837 -> 1000, 2400 -> 5000).
-function niceAxisMax(value: number): number {
-  if (value <= 0) return 100;
-  const magnitude = 10 ** Math.floor(Math.log10(value));
-  const normalized = value / magnitude;
-  const niceNormalized = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
-  return niceNormalized * magnitude;
-}
 
 const LABEL_FONT_SIZE = 10;
 const LABEL_CHAR_WIDTH = LABEL_FONT_SIZE * 0.62; // rough width of a digit/comma at this size

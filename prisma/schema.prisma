@@ -137,6 +137,13 @@ model Expense {
   @@index([reimbursedAt])
 }
 
+// Whether a rubric adds to or subtracts from the month's income total (e.g.
+// "Vencimento" sums, "Seguro de Saúde" subtracts).
+enum IncomeTypeSign {
+  ADD
+  SUBTRACT
+}
+
 // Admin-managed list of income rubrics (e.g. "Vencimento Empresa 1", "Baixa",
 // "Ajudas de custo", "Km", "Subsídio de alimentação", "Outro"), shared by
 // both household members — mirrors Category/Reimburser. `irsPct`/`ssPct`
@@ -144,14 +151,15 @@ model Expense {
 // each line can still override them. `requiresNote` forces a description
 // on every line of this type (used for "Outro", but not hardcoded to it).
 model IncomeSourceType {
-  id           String   @id @default(cuid())
-  name         String   @unique
-  irsPct       Decimal  @default(0)
-  ssPct        Decimal  @default(0)
-  requiresNote Boolean  @default(false)
-  visible      Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id           String         @id @default(cuid())
+  name         String         @unique
+  irsPct       Decimal        @default(0)
+  ssPct        Decimal        @default(0)
+  sign         IncomeTypeSign @default(ADD)
+  requiresNote Boolean        @default(false)
+  visible      Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 
   lines        IncomeLine[]
 }
@@ -198,14 +206,39 @@ model IncomeLine {
   @@index([sourceTypeId])
 }
 
+// Shared admin-managed category lists for Tasks and Shopping ("kind" keeps
+// them in one table/admin screen instead of two near-identical models).
+enum ListCategoryKind {
+  TASK
+  SHOPPING
+}
+
+model ListCategory {
+  id        String           @id @default(cuid())
+  kind      ListCategoryKind
+  name      String
+  visible   Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  tasks         Task[]
+  shoppingItems ShoppingItem[]
+
+  @@unique([kind, name])
+}
+
 model Task {
   id          String    @id @default(cuid())
   description String
+  notes       String?
   priority    String    @default("MEDIUM") // LOW | MEDIUM | HIGH | URGENT
   recurrence  String?   // null | DAILY | WEEKLY | MONTHLY
   deadline    DateTime?
   completed   Boolean   @default(false)
   completedAt DateTime?
+
+  categoryId  String?
+  category    ListCategory? @relation(fields: [categoryId], references: [id])
 
   userId      String
   user        User      @relation("TaskCreator", fields: [userId], references: [id])
@@ -220,17 +253,24 @@ model Task {
   @@index([completed])
   @@index([userId])
   @@index([assigneeId])
+  @@index([categoryId])
 }
 
 model ShoppingItem {
   id          String    @id @default(cuid())
   name        String
   quantity    String?
+  priority    String    @default("MEDIUM") // LOW | MEDIUM | HIGH | URGENT
   recurrence  String?   // null | DAILY | WEEKLY | MONTHLY
   dueDate     DateTime?
   bought      Boolean   @default(false)
   boughtAt    DateTime?
 
+  categoryId  String?
+  category    ListCategory? @relation(fields: [categoryId], references: [id])
+
+  // Shared list — any signed-in user can edit/complete/delete any item,
+  // `userId` just records who originally added it.
   userId      String
   user        User      @relation(fields: [userId], references: [id])
 
@@ -240,6 +280,7 @@ model ShoppingItem {
   @@index([bought])
   @@index([dueDate])
   @@index([userId])
+  @@index([categoryId])
 }
 
 // Single-row app-wide settings, editable in Admin. Only one row is ever
